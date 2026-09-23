@@ -1,0 +1,61 @@
+databases:
+  - name: airline-ops-db
+    plan: free
+    postgresMajorVersion: "16"
+
+services:
+  # The API - Discord OAuth, flights/crew/fleet/bookings, admin routes.
+  - type: web
+    name: airline-ops-api
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install && npm run build:shared && npm run build:server && npm run db:deploy --workspace=server
+    startCommand: node packages/server/dist/index.js
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: airline-ops-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: WEB_ORIGIN
+        value: https://airline-ops-web.onrender.com
+      - key: DESKTOP_REDIRECT_ORIGIN
+        value: http://localhost:4100
+      - key: DISCORD_CLIENT_ID
+        sync: false
+      - key: DISCORD_CLIENT_SECRET
+        sync: false
+      - key: DISCORD_REDIRECT_URI
+        value: https://airline-ops-api.onrender.com/auth/discord/callback
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: DISCORD_GUILD_ID
+        sync: false
+      # Role IDs are optional here - once deployed, set these up through the
+      # Admin > Discord Role Mapping page instead (takes effect immediately,
+      # no redeploy needed). These env vars only matter as a first-boot fallback.
+      - key: DISCORD_ROLE_ID_OWNER
+        sync: false
+      - key: DISCORD_ROLE_ID_MANAGER
+        sync: false
+      - key: DISCORD_ROLE_ID_FLIGHT_HOST
+        sync: false
+      - key: DISCORD_ROLE_ID_PILOT
+        sync: false
+
+  # The website - static build, talks to airline-ops-api.
+  - type: web
+    name: airline-ops-web
+    runtime: static
+    rootDir: .
+    buildCommand: npm install && npm run build:shared && npm run build:web
+    staticPublishPath: packages/web/dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://airline-ops-api.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

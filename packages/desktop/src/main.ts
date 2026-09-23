@@ -4,7 +4,7 @@ import { URL } from "node:url";
 import { join } from "node:path";
 import { clearToken, loadToken, saveToken } from "./tokenStore";
 
-const API_URL = process.env.AIRLINE_OPS_API_URL || "http://localhost:4000";
+const API_URL = process.env.AIRLINE_OPS_API_URL || "https://airline-ops-api.onrender.com";
 const LOOPBACK_PORT = 4100;
 const isDev = !app.isPackaged;
 
