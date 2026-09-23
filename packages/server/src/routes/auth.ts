@@ -29,6 +29,24 @@ function verifyState(state: string): OAuthClient {
   return payload.client;
 }
 
+/** In production, the API and website live on different Render subdomains
+ * (onrender.com is on the public suffix list, so they're genuinely different
+ * *sites*, not just different origins) - a SameSite=Lax cookie set by the API
+ * never gets attached to the website's cross-site fetch() calls, only to
+ * top-level navigations. SameSite=None (which requires Secure, i.e. HTTPS -
+ * fine, Render is HTTPS-only) fixes that. Locally, api/web are both on
+ * `localhost` - same site despite different ports - so Lax already works
+ * there, and Secure would break plain-HTTP local dev entirely. */
+function cookieOptions() {
+  const isProd = process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    sameSite: (isProd ? "none" : "lax") as "none" | "lax",
+    secure: isProd,
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  };
+}
+
 /** Kicks off Discord login. ?client=desktop is used by the Electron app (which opens
  * this in the system browser); omit it (or client=web) for the website. */
 router.get("/discord", (req, res) => {
@@ -80,12 +98,7 @@ router.get("/discord/callback", async (req, res) => {
       return res.redirect(`${env.desktopRedirectOrigin}/callback?token=${encodeURIComponent(sessionToken)}`);
     }
 
-    res.cookie("session", sessionToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    res.cookie("session", sessionToken, cookieOptions());
     res.redirect(env.webOrigin);
   } catch (err) {
     console.error("Discord OAuth callback failed:", err);
@@ -100,7 +113,7 @@ router.get("/me", requireAuth, async (req, res) => {
 });
 
 router.post("/logout", (req, res) => {
-  res.clearCookie("session");
+  res.clearCookie("session", cookieOptions());
   res.json({ ok: true });
 });
 

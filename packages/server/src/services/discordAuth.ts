@@ -29,7 +29,11 @@ export function buildAuthorizeUrl(state: string): string {
     response_type: "code",
     scope: "identify",
     state,
-    prompt: "none",
+    // No prompt=none here on purpose - that tells Discord to skip the consent
+    // UI entirely and silently succeed-or-fail, which is for background
+    // re-auth checks, not an actual "Sign in with Discord" button. It was
+    // causing the button to visibly flash the consent screen and auto-continue
+    // without a real click.
   });
   return `https://discord.com/oauth2/authorize?${params.toString()}`;
 }
