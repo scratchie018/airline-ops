@@ -1,0 +1,154 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  MANAGER
+  FLIGHT_HOST
+  PILOT
+  PASSENGER
+}
+
+enum FlightStatus {
+  SCHEDULED
+  BOARDING
+  DEPARTED
+  EN_ROUTE
+  LANDED
+  CANCELLED
+}
+
+enum AircraftStatus {
+  ACTIVE
+  MAINTENANCE
+  RETIRED
+}
+
+enum CrewPosition {
+  PILOT
+  FLIGHT_HOST
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CHECKED_IN
+  CANCELLED
+}
+
+model User {
+  id               String   @id @default(uuid())
+  discordId        String   @unique
+  discordUsername  String
+  discordAvatarUrl String?
+  role             Role     @default(PASSENGER)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  createdFlights   Flight[]         @relation("FlightCreatedBy")
+  crewAssignments  CrewAssignment[]
+  bookings         Booking[]
+  auditLogEntries  AuditLog[]
+
+  @@index([role])
+}
+
+/// Maps one Discord role ID (from the airline's server) to one app Role. Lets an
+/// Owner configure role sync entirely through the UI - no more editing server env
+/// vars and restarting just to add a role or fix a typo'd ID. Checked first on
+/// every login; the env var mapping (DISCORD_ROLE_ID_*) still exists purely as a
+/// fallback so a fresh install has something to bootstrap the first Owner with.
+model RoleMapping {
+  id            String   @id @default(uuid())
+  discordRoleId String   @unique
+  appRole       Role
+  label         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+/// A lightweight trail of who did what to what - not exhaustive, just the actions
+/// that matter for accountability in a multi-Owner/Manager org (role changes,
+/// flight cancellations, crew changes). Append-only, never edited or deleted via
+/// the API.
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String
+  actor      User     @relation(fields: [actorId], references: [id])
+  action     String
+  targetType String
+  targetId   String?
+  detail     String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+}
+
+model Aircraft {
+  id           String         @id @default(uuid())
+  tailNumber   String         @unique
+  model        String
+  seatCapacity Int
+  status       AircraftStatus @default(ACTIVE)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  flights Flight[]
+}
+
+model Flight {
+  id            String       @id @default(uuid())
+  flightNumber  String       @unique
+  aircraftId    String
+  aircraft      Aircraft     @relation(fields: [aircraftId], references: [id])
+  origin        String
+  destination   String
+  departureTime DateTime
+  arrivalTime   DateTime
+  status        FlightStatus @default(SCHEDULED)
+  createdById   String
+  createdBy     User         @relation("FlightCreatedBy", fields: [createdById], references: [id])
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  crew     CrewAssignment[]
+  bookings Booking[]
+
+  @@index([status])
+  @@index([departureTime])
+}
+
+model CrewAssignment {
+  id        String       @id @default(uuid())
+  flightId  String
+  flight    Flight       @relation(fields: [flightId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User         @relation(fields: [userId], references: [id])
+  position  CrewPosition
+  createdAt DateTime     @default(now())
+
+  @@unique([flightId, userId, position])
+  @@index([flightId])
+  @@index([userId])
+}
+
+model Booking {
+  id         String        @id @default(uuid())
+  flightId   String
+  flight     Flight        @relation(fields: [flightId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User          @relation(fields: [userId], references: [id])
+  seatNumber String?
+  status     BookingStatus @default(CONFIRMED)
+  createdAt  DateTime      @default(now())
+
+  @@unique([flightId, userId])
+  @@index([flightId])
+  @@index([userId])
+}

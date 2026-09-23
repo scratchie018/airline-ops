@@ -1,0 +1,134 @@
+import { Role } from "shared";
+import { env } from "../env";
+import { prisma } from "../db";
+
+const ROLE_PRECEDENCE: Role[] = [Role.OWNER, Role.MANAGER, Role.FLIGHT_HOST, Role.PILOT];
+
+const DISCORD_API = "https://discord.com/api/v10";
+
+interface DiscordTokenResponse {
+  access_token: string;
+  token_type: string;
+}
+
+interface DiscordUser {
+  id: string;
+  username: string;
+  avatar: string | null;
+  discriminator: string;
+}
+
+interface DiscordGuildMember {
+  roles: string[];
+}
+
+export function buildAuthorizeUrl(state: string): string {
+  const params = new URLSearchParams({
+    client_id: env.discordClientId,
+    redirect_uri: env.discordRedirectUri,
+    response_type: "code",
+    scope: "identify",
+    state,
+    prompt: "none",
+  });
+  return `https://discord.com/oauth2/authorize?${params.toString()}`;
+}
+
+export async function exchangeCodeForToken(code: string): Promise<string> {
+  const body = new URLSearchParams({
+    client_id: env.discordClientId,
+    client_secret: env.discordClientSecret,
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: env.discordRedirectUri,
+  });
+
+  const res = await fetch(`${DISCORD_API}/oauth2/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!res.ok) {
+    throw new Error(`Discord token exchange failed: ${res.status} ${await res.text()}`);
+  }
+  const data = (await res.json()) as DiscordTokenResponse;
+  return data.access_token;
+}
+
+export async function fetchDiscordUser(accessToken: string): Promise<DiscordUser> {
+  const res = await fetch(`${DISCORD_API}/users/@me`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch Discord user: ${res.status} ${await res.text()}`);
+  }
+  return (await res.json()) as DiscordUser;
+}
+
+/** This used to return null for anyone without a custom avatar set, which meant
+ * they showed up with no pfp at all in the UI - Discord always has SOME avatar to
+ * show (the default one), it just isn't in the /users/@me response directly. New
+ * username-system accounts (discriminator "0") get their default avatar from
+ * (id >> 22) % 6; legacy #NNNN accounts still use discriminator % 5. */
+export function discordAvatarUrl(user: DiscordUser): string {
+  if (user.avatar) {
+    const ext = user.avatar.startsWith("a_") ? "gif" : "png";
+    return `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.${ext}?size=128`;
+  }
+  const defaultIndex =
+    user.discriminator && user.discriminator !== "0"
+      ? Number(user.discriminator) % 5
+      : Number((BigInt(user.id) >> 22n) % 6n);
+  return `https://cdn.discordapp.com/embed/avatars/${defaultIndex}.png`;
+}
+
+/** Looks up the user's roles in the configured guild using the bot token (not the
+ * user's own OAuth token - Discord doesn't reliably expose a normal user's guild
+ * roles via the identify/guilds scopes, but a bot that's a member of the server can
+ * always read this for any member) and maps them to one of the 5 app Roles.
+ * Highest-privilege match wins when a user holds more than one mapped role;
+ * PASSENGER is the default for anyone who holds none of the 4 staff roles - they
+ * can still log in and book flights, just without any staff permissions. */
+export async function resolveAppRole(discordUserId: string): Promise<Role> {
+  const res = await fetch(`${DISCORD_API}/guilds/${env.discordGuildId}/members/${discordUserId}`, {
+    headers: { Authorization: `Bot ${env.discordBotToken}` },
+  });
+
+  if (res.status === 404) {
+    // Authenticated with Discord but not a member of the airline's server.
+    return Role.PASSENGER;
+  }
+  if (!res.ok) {
+    throw new Error(`Failed to fetch guild member: ${res.status} ${await res.text()}`);
+  }
+
+  const member = (await res.json()) as DiscordGuildMember;
+  const roleIds = new Set(member.roles);
+
+  // DB-configured mappings (set by an Owner in-app) take full priority over the
+  // env var fallback - the env vars exist purely to bootstrap a fresh install
+  // before any Owner has had a chance to configure anything through the UI.
+  const dbMappings = await prisma.roleMapping.findMany();
+  if (dbMappings.length > 0) {
+    const byRole = new Map(dbMappings.map((m) => [m.discordRoleId, m.appRole as Role]));
+    for (const appRole of ROLE_PRECEDENCE) {
+      const match = dbMappings.find((m) => m.appRole === appRole && roleIds.has(m.discordRoleId));
+      if (match) return byRole.get(match.discordRoleId)!;
+    }
+    return Role.PASSENGER;
+  }
+
+  const envPrecedence: [Role, string][] = [
+    [Role.OWNER, env.discordRoleIds.OWNER],
+    [Role.MANAGER, env.discordRoleIds.MANAGER],
+    [Role.FLIGHT_HOST, env.discordRoleIds.FLIGHT_HOST],
+    [Role.PILOT, env.discordRoleIds.PILOT],
+  ];
+
+  for (const [appRole, discordRoleId] of envPrecedence) {
+    if (discordRoleId && roleIds.has(discordRoleId)) {
+      return appRole;
+    }
+  }
+  return Role.PASSENGER;
+}

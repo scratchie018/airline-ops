@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-bg text-ink;
+}
+
+/* Dark-themed scrollbar so it doesn't look like a stray light-mode leftover. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #0f1021;
+}
+::-webkit-scrollbar-thumb {
+  background: #c2c6ff33;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #c2c6ff55;
+}
