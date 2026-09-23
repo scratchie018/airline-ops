@@ -3,7 +3,7 @@ import { startDiscordLogin } from "../api";
 import { useAuth } from "../auth/AuthContext";
 
 export default function Login() {
-  const { user, loading } = useAuth();
+  const { user, loading, loginError, clearLoginError } = useAuth();
 
   if (loading) return null;
   if (user) return <Navigate to="/" replace />;
@@ -18,11 +18,15 @@ export default function Login() {
           automatically from your server roles.
         </p>
         <button
-          onClick={() => startDiscordLogin()}
+          onClick={() => {
+            clearLoginError();
+            startDiscordLogin();
+          }}
           className="w-full bg-[#5865F2] hover:bg-[#4752c4] text-white font-medium py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
         >
           <i className="fa-brands fa-discord" /> Sign in with Discord
         </button>
+        {loginError && <p className="text-sm text-red-400 mt-4">{loginError}</p>}
       </div>
     </div>
   );

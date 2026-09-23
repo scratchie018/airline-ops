@@ -8,6 +8,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onToken: (callback: (token: string) => void) => {
     ipcRenderer.on("auth:token-received", (_event, token: string) => callback(token));
   },
+  onLoginTimeout: (callback: () => void) => {
+    ipcRenderer.on("auth:login-timed-out", () => callback());
+  },
   window: {
     minimize: () => ipcRenderer.invoke("window:minimize"),
     maximizeToggle: () => ipcRenderer.invoke("window:maximize-toggle"),

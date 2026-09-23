@@ -8,6 +8,8 @@ interface AuthState {
   can: (permission: Permission) => boolean;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
+  loginError: string | null;
+  clearLoginError: () => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -15,6 +17,7 @@ const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   async function refresh() {
     try {
@@ -35,6 +38,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // apiFetch will actually have a token to send.
     if (isElectron) {
       window.electronAPI!.onToken(() => refresh());
+      window.electronAPI!.onLoginTimeout(() =>
+        setLoginError("Sign-in timed out - the browser window may have been closed before completing login. Try again.")
+      );
     }
   }, []);
 
@@ -53,6 +59,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         can: (permission) => (user ? hasPermission(user.role, permission) : false),
         refresh,
         logout,
+        loginError,
+        clearLoginError: () => setLoginError(null),
       }}
     >
       {children}

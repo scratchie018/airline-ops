@@ -1,15 +1,13 @@
 import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
-import { createServer, Server } from "node:http";
-import { URL } from "node:url";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { clearToken, loadToken, saveToken } from "./tokenStore";
 
 const API_URL = process.env.AIRLINE_OPS_API_URL || "https://airline-ops-api.onrender.com";
-const LOOPBACK_PORT = 4100;
 const isDev = !app.isPackaged;
 
 let mainWindow: BrowserWindow | null = null;
-let loopbackServer: Server | null = null;
+let pollTimer: NodeJS.Timeout | null = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -48,40 +46,51 @@ function createWindow() {
   }
 }
 
-/** Starts (if not already running) a short-lived local HTTP server whose sole job
- * is catching the one redirect Discord/our backend sends back after login - the
- * standard loopback pattern desktop apps use for OAuth since they can't register a
- * custom redirect URI that a browser-based flow would otherwise use. Closes itself
- * once it's caught a token so it's not sitting open the rest of the session. */
-function ensureLoopbackServer() {
-  if (loopbackServer) return;
+const POLL_INTERVAL_MS = 1500;
+const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
-  loopbackServer = createServer((req, res) => {
-    const url = new URL(req.url || "/", `http://localhost:${LOOPBACK_PORT}`);
-    if (url.pathname !== "/callback") {
-      res.writeHead(404).end();
+/** Opens the system browser for Discord login, then polls the API for the
+ * resulting token instead of running a local server to catch a redirect.
+ *
+ * This used to be a localhost HTTP server (the standard OAuth loopback pattern),
+ * but that means the desktop app has to successfully *accept an inbound
+ * connection* on the user's machine - something Windows Firewall, antivirus, or
+ * a port already in use by something else can silently block, with no useful
+ * error surfaced anywhere. Polling only ever makes outbound HTTPS requests, the
+ * same kind every other API call in this app already makes successfully, so
+ * there's no separate networking path that can be blocked. */
+function startLogin() {
+  const sessionId = randomUUID();
+  shell.openExternal(`${API_URL}/auth/discord?client=desktop&session=${sessionId}`);
+
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    if (Date.now() > deadline) {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = null;
+      mainWindow?.webContents.send("auth:login-timed-out");
       return;
     }
-    const token = url.searchParams.get("token");
-    res.writeHead(200, { "Content-Type": "text/html" });
-    if (token) {
-      saveToken(token);
-      mainWindow?.webContents.send("auth:token-received", token);
-      res.end("<html><body>Signed in - you can close this tab and return to Airline Ops.</body></html>");
-    } else {
-      res.end("<html><body>Login failed - no token received.</body></html>");
+
+    try {
+      const res = await fetch(`${API_URL}/auth/session/${sessionId}`);
+      if (res.status !== 200) return;
+      const data = (await res.json()) as { ready: boolean; token?: string };
+      if (data.ready && data.token) {
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = null;
+        saveToken(data.token);
+        mainWindow?.webContents.send("auth:token-received", data.token);
+      }
+    } catch {
+      // Transient network hiccup - just try again on the next tick.
     }
-
-    loopbackServer?.close();
-    loopbackServer = null;
-  });
-
-  loopbackServer.listen(LOOPBACK_PORT);
+  }, POLL_INTERVAL_MS);
 }
 
 ipcMain.handle("auth:start-login", () => {
-  ensureLoopbackServer();
-  shell.openExternal(`${API_URL}/auth/discord?client=desktop`);
+  startLogin();
 });
 
 ipcMain.handle("auth:get-token", () => loadToken());

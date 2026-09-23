@@ -10,6 +10,7 @@ declare global {
       getToken: () => Promise<string | null>;
       clearToken: () => Promise<void>;
       onToken: (callback: (token: string) => void) => void;
+      onLoginTimeout: (callback: () => void) => void;
       window: {
         minimize: () => void;
         maximizeToggle: () => void;
