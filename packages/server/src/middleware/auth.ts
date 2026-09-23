@@ -20,8 +20,9 @@ function extractToken(req: Request): string | null {
   return cookieToken || null;
 }
 
-/** Accepts either an `Authorization: Bearer <token>` header (used by the desktop
- * app) or a `session` httpOnly cookie (used by the website) - same JWT either way. */
+/** Both web and desktop send the session as an `Authorization: Bearer` header now
+ * (see routes/auth.ts) - the cookie fallback is only here in case anything old is
+ * still sending one, it's never set by current code. */
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const token = extractToken(req);
   if (!token) {

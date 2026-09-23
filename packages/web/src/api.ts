@@ -2,13 +2,27 @@ export const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
 export const isElectron = typeof window !== "undefined" && !!window.electronAPI;
 
-/** In the browser, auth rides on the httpOnly `session` cookie (credentials:
- * "include" is enough). Inside Electron there's no shared cookie jar with the
- * backend in a meaningful way, so the token grabbed from the OAuth loopback is
- * sent explicitly as a Bearer header instead - see packages/desktop's preload/main. */
+const WEB_TOKEN_KEY = "airline_ops_token";
+
+/** Web build's equivalent of the desktop app's encrypted token file - just
+ * localStorage, scoped to this origin. Not as hardened as Electron's safeStorage,
+ * but this is the standard approach for a browser SPA talking to a separate API
+ * origin (see routes/auth.ts for why a cookie doesn't work here). */
+export function setWebToken(token: string) {
+  localStorage.setItem(WEB_TOKEN_KEY, token);
+}
+export function clearWebToken() {
+  localStorage.removeItem(WEB_TOKEN_KEY);
+}
+function getWebToken(): string | null {
+  return localStorage.getItem(WEB_TOKEN_KEY);
+}
+
+/** Both web and desktop authenticate the same way now: a Bearer token, stored
+ * locally (localStorage for web, an encrypted file for Electron - see
+ * packages/desktop's tokenStore.ts) and attached to every request. */
 async function authHeader(): Promise<Record<string, string>> {
-  if (!isElectron) return {};
-  const token = await window.electronAPI!.getToken();
+  const token = isElectron ? await window.electronAPI!.getToken() : getWebToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -28,7 +42,6 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
     headers,
-    credentials: "include",
   });
 
   if (!res.ok) {
@@ -46,14 +59,11 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   return res.json();
 }
 
-/** Downloads a non-JSON endpoint (e.g. a CSV export) with the right auth attached.
- * A plain <a href> works for the web build (the session cookie rides along on a
- * top-level navigation under SameSite=Lax) but not inside Electron, which has no
- * cookie at all - only the Bearer token apiFetch already knows how to attach. */
+/** Downloads a non-JSON endpoint (e.g. a CSV export), attaching the same Bearer
+ * token apiFetch uses. */
 export async function downloadFile(path: string, filename: string): Promise<void> {
   const res = await fetch(`${API_URL}${path}`, {
     headers: await authHeader(),
-    credentials: "include",
   });
   if (!res.ok) throw new ApiError(res.status, res.statusText);
 

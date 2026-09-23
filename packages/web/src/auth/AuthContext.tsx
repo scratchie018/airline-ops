@@ -1,6 +1,6 @@
 import { createContext, ReactNode, useContext, useEffect, useState } from "react";
 import { Permission, User, hasPermission } from "shared";
-import { apiFetch, isElectron } from "../api";
+import { apiFetch, clearWebToken, isElectron } from "../api";
 
 interface AuthState {
   user: User | null;
@@ -41,6 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function logout() {
     await apiFetch("/auth/logout", { method: "POST" });
     if (isElectron) await window.electronAPI!.clearToken();
+    else clearWebToken();
     setUser(null);
   }
 
