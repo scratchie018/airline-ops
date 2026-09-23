@@ -79,7 +79,7 @@ export default function Layout() {
               <NavLink to="/my-bookings" className={navItemClass}>
                 <i className="fa-solid fa-ticket" /> My Bookings
               </NavLink>
-              {can(Permission.MANAGE_USER_ROLES) && (
+              {(can(Permission.MANAGE_USER_ROLES) || can(Permission.MANAGE_ROLE_MAPPINGS)) && (
                 <NavLink to="/admin" className={navItemClass}>
                   <i className="fa-solid fa-user-shield" /> Admin
                 </NavLink>

@@ -37,6 +37,12 @@ export enum BookingStatus {
   CANCELLED = "CANCELLED",
 }
 
+export enum DrinkOrderStatus {
+  PENDING = "PENDING",
+  DELIVERED = "DELIVERED",
+  CANCELLED = "CANCELLED",
+}
+
 export interface User {
   id: string;
   discordId: string;
@@ -101,6 +107,16 @@ export interface Booking {
   userId: string;
   seatNumber: string | null;
   status: BookingStatus;
+  createdAt: string;
+  user?: Pick<User, "id" | "discordUsername" | "discordAvatarUrl">;
+}
+
+export interface DrinkOrder {
+  id: string;
+  flightId: string;
+  userId: string;
+  item: string;
+  status: DrinkOrderStatus;
   createdAt: string;
   user?: Pick<User, "id" | "discordUsername" | "discordAvatarUrl">;
 }

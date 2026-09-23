@@ -1,6 +1,6 @@
 import { Role } from "shared";
 import { prisma } from "../db";
-import { resolveAppRoleForGuild } from "./discordAuth";
+import { discordAvatarUrl, fetchGuildMembers, resolveAppRoleForGuild, resolveRoleFromRoleIds } from "./discordAuth";
 
 /** Called right after Discord login. Finds every Airline whose Discord guild this
  * user actually belongs to (from their OAuth `guilds` scope) and gives them a
@@ -45,4 +45,64 @@ export async function syncMembershipsFromDiscordGuilds(
       create: { userId, airlineId: airline.id, role },
     });
   }
+}
+
+export interface GuildSyncResult {
+  membersScanned: number;
+  usersCreated: number;
+  membershipsCreated: number;
+  membershipsUpdated: number;
+}
+
+/** The "double check, even for people already in the server" reconciliation -
+ * walks the airline's ENTIRE Discord member list (not just whoever happens to
+ * log in) and gives everyone a User + Membership with a freshly resolved Role.
+ * Unlike the login-time sync, this can create a User for someone who has never
+ * signed into the app themselves - the bot already has their Discord identity
+ * (id/username/avatar) from the member list, so there's no need to wait for
+ * them to click "Sign in with Discord" before they show up in the roster.
+ *
+ * Same OWNER protection as syncMembershipsFromDiscordGuilds, for the same
+ * reason: this can run before any RoleMapping exists to reconfirm the airline
+ * creator's own Discord role as OWNER. */
+export async function syncAllMembersForAirline(airlineId: string): Promise<GuildSyncResult> {
+  const airline = await prisma.airline.findUniqueOrThrow({ where: { id: airlineId } });
+  const [members, mappings, existingMemberships] = await Promise.all([
+    fetchGuildMembers(airline.discordGuildId),
+    prisma.roleMapping.findMany({ where: { airlineId } }),
+    prisma.membership.findMany({ where: { airlineId } }),
+  ]);
+
+  const existingByUserId = new Map(existingMemberships.map((m) => [m.userId, m]));
+  const result: GuildSyncResult = { membersScanned: members.length, usersCreated: 0, membershipsCreated: 0, membershipsUpdated: 0 };
+
+  for (const member of members) {
+    const existingUser = await prisma.user.findUnique({ where: { discordId: member.user.id } });
+    const user = await prisma.user.upsert({
+      where: { discordId: member.user.id },
+      update: { discordUsername: member.user.username, discordAvatarUrl: discordAvatarUrl(member.user) },
+      create: {
+        discordId: member.user.id,
+        discordUsername: member.user.username,
+        discordAvatarUrl: discordAvatarUrl(member.user),
+      },
+    });
+    if (!existingUser) result.usersCreated++;
+
+    const current = existingByUserId.get(user.id);
+    if (current?.role === Role.OWNER) continue;
+
+    const role = resolveRoleFromRoleIds(member.roles, mappings);
+    if (current) {
+      if (current.role !== role) {
+        await prisma.membership.update({ where: { id: current.id }, data: { role } });
+        result.membershipsUpdated++;
+      }
+    } else {
+      await prisma.membership.create({ data: { userId: user.id, airlineId, role } });
+      result.membershipsCreated++;
+    }
+  }
+
+  return result;
 }

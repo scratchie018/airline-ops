@@ -1,7 +1,72 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Membership, Role } from "shared";
 import { apiFetch } from "../api";
 import { useAuth } from "../auth/AuthContext";
+
+function EditAirlineForm({ membership, onDone }: { membership: Membership; onDone: () => void }) {
+  const [name, setName] = useState(membership.airline.name);
+  const [discordGuildId, setDiscordGuildId] = useState(membership.airline.discordGuildId);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      await apiFetch(`/airlines/${membership.airlineId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name, discordGuildId }),
+      });
+      onDone();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="px-4 py-3 bg-bg/40 space-y-3">
+      <div>
+        <label className="block text-xs text-ink-muted mb-1">Airline name</label>
+        <input
+          required
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-full border rounded-lg px-3 py-1.5 text-sm bg-bg text-ink"
+        />
+      </div>
+      <div>
+        <label className="block text-xs text-ink-muted mb-1">Discord Server ID</label>
+        <input
+          required
+          value={discordGuildId}
+          onChange={(e) => setDiscordGuildId(e.target.value)}
+          className="w-full border rounded-lg px-3 py-1.5 text-sm bg-bg text-ink font-mono"
+        />
+      </div>
+      {error && <p className="text-sm text-tuired-400">{error}</p>}
+      <div className="flex gap-2">
+        <button
+          disabled={submitting}
+          className="bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-medium py-1.5 px-3 rounded-lg"
+        >
+          {submitting && <i className="fa-solid fa-circle-notch fa-spin mr-1.5" />}
+          Save
+        </button>
+        <button
+          type="button"
+          onClick={onDone}
+          className="text-sm text-ink-muted hover:text-ink py-1.5 px-3"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
 
 export default function AirlinesPage() {
   const { user, memberships, selectAirline, refresh, logout } = useAuth();
@@ -11,6 +76,7 @@ export default function AirlinesPage() {
   const [discordGuildId, setDiscordGuildId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [editingAirlineId, setEditingAirlineId] = useState<string | null>(null);
 
   function pick(airlineId: string) {
     selectAirline(airlineId);
@@ -54,19 +120,37 @@ export default function AirlinesPage() {
           <div className="mb-8">
             <h2 className="text-sm font-semibold text-ink-muted uppercase tracking-wide mb-3">Your airlines</h2>
             <div className="bg-accent border rounded-xl divide-y overflow-hidden">
-              {memberships.map((m) => (
-                <button
-                  key={m.airlineId}
-                  onClick={() => pick(m.airlineId)}
-                  className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-outline/10 transition-colors"
-                >
-                  <div>
-                    <div className="font-medium text-ink">{m.airline.name}</div>
-                    <div className="text-xs text-ink-muted">{m.role.replace("_", " ")}</div>
+              {memberships.map((m) =>
+                editingAirlineId === m.airlineId ? (
+                  <EditAirlineForm
+                    key={m.airlineId}
+                    membership={m}
+                    onDone={() => {
+                      setEditingAirlineId(null);
+                      refresh();
+                    }}
+                  />
+                ) : (
+                  <div key={m.airlineId} className="w-full flex items-center justify-between px-4 py-3 hover:bg-outline/10 transition-colors">
+                    <button onClick={() => pick(m.airlineId)} className="flex-1 text-left">
+                      <div className="font-medium text-ink">{m.airline.name}</div>
+                      <div className="text-xs text-ink-muted">{m.role.replace("_", " ")}</div>
+                    </button>
+                    {m.role === Role.OWNER && (
+                      <button
+                        onClick={() => setEditingAirlineId(m.airlineId)}
+                        className="text-ink-muted hover:text-ink px-2"
+                        title="Edit airline"
+                      >
+                        <i className="fa-solid fa-pen" />
+                      </button>
+                    )}
+                    <button onClick={() => pick(m.airlineId)} className="text-ink-muted px-1">
+                      <i className="fa-solid fa-chevron-right" />
+                    </button>
                   </div>
-                  <i className="fa-solid fa-chevron-right text-ink-muted" />
-                </button>
-              ))}
+                )
+              )}
             </div>
           </div>
         )}

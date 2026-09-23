@@ -19,6 +19,7 @@ interface DiscordUser {
 }
 
 interface DiscordGuildMember {
+  user: DiscordUser & { bot?: boolean };
   roles: string[];
 }
 
@@ -121,14 +122,33 @@ export async function fetchUserGuildIds(accessToken: string): Promise<string[]> 
   return guilds.map((g) => g.id);
 }
 
-/** Looks up the user's roles in one airline's guild using the bot token (not the
+interface RoleMappingRow {
+  discordRoleId: string;
+  appRole: string;
+}
+
+/** Pure role resolution given a Discord member's role IDs and an airline's
+ * RoleMapping rows - factored out so the guild-wide reconciliation
+ * (syncAllMembersForAirline) can reuse it against role data it already has
+ * from a member-list call, instead of firing one extra HTTP request per
+ * member the way the single-user login path needs to. Highest-privilege
+ * match wins when a user holds more than one mapped Discord role; PASSENGER
+ * is the default for anyone who holds none of the 4 staff roles - they can
+ * still log in and book flights, just without any staff permissions. */
+export function resolveRoleFromRoleIds(discordRoleIds: string[], mappings: RoleMappingRow[]): Role {
+  const roleIds = new Set(discordRoleIds);
+  const byRole = new Map(mappings.map((m) => [m.discordRoleId, m.appRole as Role]));
+  for (const appRole of ROLE_PRECEDENCE) {
+    const match = mappings.find((m) => m.appRole === appRole && roleIds.has(m.discordRoleId));
+    if (match) return byRole.get(match.discordRoleId)!;
+  }
+  return Role.PASSENGER;
+}
+
+/** Looks up one user's roles in one airline's guild using the bot token (not the
  * user's own OAuth token - Discord doesn't reliably expose a normal user's guild
  * roles via the identify/guilds scopes, but a bot that's a member of the server
- * can always read this for any member) and maps them to one of the 5 app Roles
- * using that airline's own RoleMapping table. Highest-privilege match wins when
- * a user holds more than one mapped Discord role; PASSENGER is the default for
- * anyone who holds none of the 4 staff roles - they can still log in and book
- * flights, just without any staff permissions. */
+ * can always read this for any member) and maps them to one of the 5 app Roles. */
 export async function resolveAppRoleForGuild(
   discordUserId: string,
   guildId: string,
@@ -148,13 +168,52 @@ export async function resolveAppRoleForGuild(
   }
 
   const member = (await res.json()) as DiscordGuildMember;
-  const roleIds = new Set(member.roles);
-
   const mappings = await prisma.roleMapping.findMany({ where: { airlineId } });
-  const byRole = new Map(mappings.map((m) => [m.discordRoleId, m.appRole as Role]));
-  for (const appRole of ROLE_PRECEDENCE) {
-    const match = mappings.find((m) => m.appRole === appRole && roleIds.has(m.discordRoleId));
-    if (match) return byRole.get(match.discordRoleId)!;
+  return resolveRoleFromRoleIds(member.roles, mappings);
+}
+
+/** Thrown by fetchGuildMembers specifically when Discord rejects the call for
+ * lacking the privileged intent, so callers can show something actionable
+ * instead of a generic failure. */
+export class MissingServerMembersIntentError extends Error {
+  constructor() {
+    super("Server Members Intent isn't enabled for the bot");
   }
-  return Role.PASSENGER;
+}
+
+/** Every human (non-bot) member of a guild, with their current Discord role IDs -
+ * paginated via the bot token, capped at 10,000 members (10 pages) as a sane
+ * upper bound for how large a single virtual airline's server would ever get.
+ *
+ * Unlike the single-member lookup above, LISTING a guild's members needs
+ * Discord's privileged "Server Members Intent" toggled on for the bot
+ * application (Discord Developer Portal -> Bot -> Privileged Gateway Intents),
+ * not just the bot being in the server - Discord returns 403/50001 ("Missing
+ * Access") if it isn't, which this detects and rethrows as
+ * MissingServerMembersIntentError. */
+export async function fetchGuildMembers(guildId: string): Promise<DiscordGuildMember[]> {
+  const members: DiscordGuildMember[] = [];
+  let after = "0";
+
+  for (let page = 0; page < 10; page++) {
+    const res = await fetch(`${DISCORD_API}/guilds/${guildId}/members?limit=1000&after=${after}`, {
+      headers: { Authorization: `Bot ${env.discordBotToken}` },
+    });
+    if (res.status === 403) {
+      const body = await res.text();
+      if (body.includes('"code": 50001') || body.includes('"code":50001')) {
+        throw new MissingServerMembersIntentError();
+      }
+      throw new Error(`Failed to fetch guild members: 403 ${body}`);
+    }
+    if (!res.ok) {
+      throw new Error(`Failed to fetch guild members: ${res.status} ${await res.text()}`);
+    }
+    const batch = (await res.json()) as DiscordGuildMember[];
+    members.push(...batch.filter((m) => !m.user.bot));
+    if (batch.length < 1000) break;
+    after = batch[batch.length - 1].user.id;
+  }
+
+  return members;
 }

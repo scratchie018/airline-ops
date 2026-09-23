@@ -1,21 +1,32 @@
 import { FormEvent, useEffect, useState } from "react";
-import { AuditLogEntry, Paginated, Role, RoleMapping, User } from "shared";
+import { AuditLogEntry, Paginated, Permission, Role, RoleMapping, User } from "shared";
 import { apiFetch } from "../api";
+import { useAuth } from "../auth/AuthContext";
 
 type Tab = "users" | "mappings" | "audit";
 
 const ROLE_OPTIONS = [Role.OWNER, Role.MANAGER, Role.FLIGHT_HOST, Role.PILOT, Role.PASSENGER];
 
 export default function AdminPage() {
-  const [tab, setTab] = useState<Tab>("users");
+  const { can } = useAuth();
+  const canManageUsers = can(Permission.MANAGE_USER_ROLES);
+  const canManageMappings = can(Permission.MANAGE_ROLE_MAPPINGS);
+  const tabs: Tab[] = [
+    ...(canManageUsers ? (["users"] as Tab[]) : []),
+    ...(canManageMappings ? (["mappings"] as Tab[]) : []),
+    ...(canManageUsers ? (["audit"] as Tab[]) : []),
+  ];
+  const [tab, setTab] = useState<Tab>(tabs[0]);
 
   return (
     <div>
       <h1 className="text-2xl font-bold mb-1"><i className="fa-solid fa-user-shield text-brand-400 mr-2" />Admin</h1>
-      <p className="text-ink-muted mb-4">Owner-only: manage staff access and review recent activity.</p>
+      <p className="text-ink-muted mb-4">
+        {canManageUsers ? "Owner: manage staff access and review recent activity." : "Manage Discord role mapping."}
+      </p>
 
       <div className="flex gap-1 mb-4 border-b">
-        {(["users", "mappings", "audit"] as Tab[]).map((t) => (
+        {tabs.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -28,9 +39,9 @@ export default function AdminPage() {
         ))}
       </div>
 
-      {tab === "users" && <UsersTab />}
-      {tab === "mappings" && <MappingsTab />}
-      {tab === "audit" && <AuditTab />}
+      {tab === "users" && canManageUsers && <UsersTab />}
+      {tab === "mappings" && canManageMappings && <MappingsTab />}
+      {tab === "audit" && canManageUsers && <AuditTab />}
     </div>
   );
 }
@@ -112,11 +123,19 @@ function UsersTab() {
 }
 
 function MappingsTab() {
+  const { currentMembership } = useAuth();
+  const isOwner = currentMembership?.role === Role.OWNER;
+  const assignableRoles = isOwner
+    ? [Role.OWNER, Role.MANAGER, Role.FLIGHT_HOST, Role.PILOT]
+    : [Role.MANAGER, Role.FLIGHT_HOST, Role.PILOT];
+
   const [mappings, setMappings] = useState<RoleMapping[]>([]);
   const [discordRoleId, setDiscordRoleId] = useState("");
   const [appRole, setAppRole] = useState<Role>(Role.PILOT);
   const [label, setLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
 
   async function load() {
     setMappings(await apiFetch<RoleMapping[]>("/admin/role-mappings"));
@@ -148,13 +167,42 @@ function MappingsTab() {
     load();
   }
 
+  async function syncNow() {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const result = await apiFetch<{ membersScanned: number; usersCreated: number; membershipsCreated: number; membershipsUpdated: number }>(
+        "/admin/sync-roles",
+        { method: "POST" }
+      );
+      setSyncResult(
+        `Scanned ${result.membersScanned} server members - ${result.usersCreated} new, ${result.membershipsCreated} joined, ${result.membershipsUpdated} role changes.`
+      );
+    } catch (err: any) {
+      setSyncResult(err.message);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   return (
     <div>
-      <p className="text-sm text-ink-muted mb-3">
-        Controls what app role someone gets based on which role they hold in your Discord server - configured
-        here instead of server env vars, so it takes effect immediately with no restart. Right-click a role
-        in Discord (Developer Mode on) → Copy Role ID.
-      </p>
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <p className="text-sm text-ink-muted">
+          Controls what app role someone gets based on which role they hold in your Discord server - configured
+          here instead of server env vars, so it takes effect immediately with no restart. Right-click a role
+          in Discord (Developer Mode on) → Copy Role ID.
+        </p>
+        <button
+          onClick={syncNow}
+          disabled={syncing}
+          className="shrink-0 bg-accent border hover:bg-outline/10 disabled:opacity-60 text-ink text-xs font-medium py-1.5 px-3 rounded-lg whitespace-nowrap"
+        >
+          {syncing ? <i className="fa-solid fa-circle-notch fa-spin mr-1.5" /> : <i className="fa-solid fa-rotate mr-1.5" />}
+          Sync Discord roles now
+        </button>
+      </div>
+      {syncResult && <p className="text-xs text-ink-muted mb-3">{syncResult}</p>}
 
       <form onSubmit={onCreate} className="bg-accent border rounded-xl p-4 mb-4 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
         <div>
@@ -170,7 +218,7 @@ function MappingsTab() {
         <div>
           <label className="block text-xs text-ink-muted mb-1">App role</label>
           <select value={appRole} onChange={(e) => setAppRole(e.target.value as Role)} className="w-full border rounded-lg px-2 py-1.5 text-sm bg-bg text-ink placeholder:text-ink-muted">
-            {[Role.OWNER, Role.MANAGER, Role.FLIGHT_HOST, Role.PILOT].map((r) => (
+            {assignableRoles.map((r) => (
               <option key={r} value={r}>
                 {r.replace("_", " ")}
               </option>

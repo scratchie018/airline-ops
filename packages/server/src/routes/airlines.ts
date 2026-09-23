@@ -5,6 +5,7 @@ import { prisma } from "../db";
 import { env } from "../env";
 import { requireAuth } from "../middleware/auth";
 import { isBotInGuild } from "../services/discordAuth";
+import { syncAllMembersForAirline } from "../services/membershipSync";
 
 const DISCORD_API = "https://discord.com/api/v10";
 
@@ -86,6 +87,9 @@ router.post("/", requireAuth, async (req, res) => {
   });
 
   res.status(201).json(airline);
+  // Pick up everyone else already in the server right away, not just the
+  // creator - same "double check" reconciliation the sync-roles button runs.
+  syncAllMembersForAirline(airline.id).catch((err) => console.error("Post-create role sync failed:", err));
 });
 
 const updateSchema = z.object({
@@ -121,6 +125,9 @@ router.patch("/:id", requireAuth, async (req, res) => {
   try {
     const airline = await prisma.airline.update({ where: { id: req.params.id }, data: parsed.data });
     res.json(airline);
+    if (parsed.data.discordGuildId) {
+      syncAllMembersForAirline(airline.id).catch((err) => console.error("Post-edit role sync failed:", err));
+    }
   } catch (err: any) {
     if (err.code === "P2002") return res.status(409).json({ error: "That Discord server is already registered to another airline" });
     throw err;

@@ -41,6 +41,12 @@ enum BookingStatus {
   CANCELLED
 }
 
+enum DrinkOrderStatus {
+  PENDING
+  DELIVERED
+  CANCELLED
+}
+
 model User {
   id               String   @id @default(uuid())
   discordId        String   @unique
@@ -53,6 +59,7 @@ model User {
   createdFlights   Flight[]         @relation("FlightCreatedBy")
   crewAssignments  CrewAssignment[]
   bookings         Booking[]
+  drinkOrders      DrinkOrder[]
   auditLogEntries  AuditLog[]
   ownedAirlines    Airline[]        @relation("AirlineCreatedBy")
 }
@@ -168,8 +175,9 @@ model Flight {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
-  crew     CrewAssignment[]
-  bookings Booking[]
+  crew        CrewAssignment[]
+  bookings    Booking[]
+  drinkOrders DrinkOrder[]
 
   @@unique([airlineId, flightNumber])
   @@index([airlineId, status])
@@ -202,5 +210,23 @@ model Booking {
 
   @@unique([flightId, userId])
   @@index([flightId])
+  @@index([userId])
+}
+
+/// A passenger's (or crew member's) drink order on a flight - the one thing a
+/// Passenger can actively do beyond booking a seat and watching status change.
+/// No airlineId of its own; scoped through flightId the same way CrewAssignment
+/// and Booking already are.
+model DrinkOrder {
+  id        String           @id @default(uuid())
+  flightId  String
+  flight    Flight           @relation(fields: [flightId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User             @relation(fields: [userId], references: [id])
+  item      String
+  status    DrinkOrderStatus @default(PENDING)
+  createdAt DateTime         @default(now())
+
+  @@index([flightId, status])
   @@index([userId])
 }

@@ -12,6 +12,13 @@ export enum Permission {
   VIEW_ALL_BOOKINGS = "VIEW_ALL_BOOKINGS",
   BOOK_FLIGHT = "BOOK_FLIGHT",
   MANAGE_USER_ROLES = "MANAGE_USER_ROLES",
+  // Split out from MANAGE_USER_ROLES so an Owner can let Managers configure
+  // which Discord roles map to which app roles ("custom roles") without also
+  // handing them the more sensitive per-user manual override / audit log
+  // access, which stays Owner-only.
+  MANAGE_ROLE_MAPPINGS = "MANAGE_ROLE_MAPPINGS",
+  ORDER_DRINKS = "ORDER_DRINKS",
+  MANAGE_DRINK_ORDERS = "MANAGE_DRINK_ORDERS",
 }
 
 const MATRIX: Record<Role, Permission[]> = {
@@ -23,6 +30,9 @@ const MATRIX: Record<Role, Permission[]> = {
     Permission.VIEW_ALL_BOOKINGS,
     Permission.BOOK_FLIGHT,
     Permission.MANAGE_USER_ROLES,
+    Permission.MANAGE_ROLE_MAPPINGS,
+    Permission.ORDER_DRINKS,
+    Permission.MANAGE_DRINK_ORDERS,
   ],
   [Role.MANAGER]: [
     Permission.MANAGE_AIRCRAFT,
@@ -31,6 +41,9 @@ const MATRIX: Record<Role, Permission[]> = {
     Permission.UPDATE_FLIGHT_STATUS,
     Permission.VIEW_ALL_BOOKINGS,
     Permission.BOOK_FLIGHT,
+    Permission.MANAGE_ROLE_MAPPINGS,
+    Permission.ORDER_DRINKS,
+    Permission.MANAGE_DRINK_ORDERS,
   ],
   [Role.FLIGHT_HOST]: [
     Permission.MANAGE_FLIGHTS,
@@ -39,12 +52,15 @@ const MATRIX: Record<Role, Permission[]> = {
     Permission.UPDATE_FLIGHT_STATUS,
     Permission.VIEW_ALL_BOOKINGS,
     Permission.BOOK_FLIGHT,
+    Permission.ORDER_DRINKS,
+    Permission.MANAGE_DRINK_ORDERS,
   ],
   [Role.PILOT]: [
     Permission.UPDATE_FLIGHT_STATUS,
     Permission.BOOK_FLIGHT,
+    Permission.ORDER_DRINKS,
   ],
-  [Role.PASSENGER]: [Permission.BOOK_FLIGHT],
+  [Role.PASSENGER]: [Permission.BOOK_FLIGHT, Permission.ORDER_DRINKS],
 };
 
 export function hasPermission(role: Role, permission: Permission): boolean {

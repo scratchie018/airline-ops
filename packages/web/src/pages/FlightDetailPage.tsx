@@ -1,6 +1,17 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { CrewPosition, FlightDetail, FlightStatus, Permission, Role, User } from "shared";
+import {
+  CrewPosition,
+  DrinkOrder,
+  DrinkOrderStatus,
+  FlightDetail,
+  FlightStatus,
+  MENU_ITEMS,
+  MenuItemName,
+  Permission,
+  Role,
+  User,
+} from "shared";
 import { apiFetch, downloadFile } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import StatusBadge from "../components/StatusBadge";
@@ -27,11 +38,20 @@ export default function FlightDetailPage() {
   const [crewOptions, setCrewOptions] = useState<CrewEligibleUser[]>([]);
   const [crewUserId, setCrewUserId] = useState("");
   const [crewPosition, setCrewPosition] = useState<CrewPosition>(CrewPosition.PILOT);
+  const [myDrinkOrders, setMyDrinkOrders] = useState<DrinkOrder[]>([]);
+  const [allDrinkOrders, setAllDrinkOrders] = useState<DrinkOrder[]>([]);
+  const [ordering, setOrdering] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
     const f = await apiFetch<FlightDetail>(`/flights/${id}`);
     setFlight(f);
+    if (can(Permission.ORDER_DRINKS)) {
+      apiFetch<DrinkOrder[]>(`/flights/${id}/drink-orders/mine`).then(setMyDrinkOrders);
+    }
+    if (can(Permission.MANAGE_DRINK_ORDERS)) {
+      apiFetch<DrinkOrder[]>(`/flights/${id}/drink-orders`).then(setAllDrinkOrders);
+    }
   }
 
   useEffect(() => {
@@ -94,6 +114,24 @@ export default function FlightDetailPage() {
 
   async function cancelBooking(bookingId: string) {
     await apiFetch(`/bookings/${bookingId}`, { method: "DELETE" });
+    load();
+  }
+
+  async function orderItem(item: MenuItemName) {
+    setError(null);
+    setOrdering(item);
+    try {
+      await apiFetch(`/flights/${id}/drink-orders`, { method: "POST", body: JSON.stringify({ item }) });
+      load();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setOrdering(null);
+    }
+  }
+
+  async function fulfillDrink(orderId: string, status: DrinkOrderStatus) {
+    await apiFetch(`/drink-orders/${orderId}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
     load();
   }
 
@@ -239,6 +277,85 @@ export default function FlightDetailPage() {
           )}
         </div>
       </div>
+
+      {myBooking && can(Permission.ORDER_DRINKS) && (
+        <div className="bg-accent border rounded-xl p-4">
+          <h2 className="font-semibold mb-3">
+            <i className="fa-solid fa-martini-glass-citrus text-brand-400 mr-1.5" />
+            Cabin service
+          </h2>
+
+          {(["drink", "snack"] as const).map((category) => (
+            <div key={category} className="mb-4 last:mb-0">
+              <h3 className="text-xs font-semibold text-ink-muted uppercase tracking-wide mb-2">
+                {category === "drink" ? "Drinks" : "Snacks"}
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {MENU_ITEMS.filter((item) => item.category === category).map((item) => (
+                  <button
+                    key={item.name}
+                    onClick={() => orderItem(item.name)}
+                    disabled={ordering === item.name}
+                    className="flex flex-col items-center gap-1.5 p-2 rounded-lg border bg-bg/40 hover:bg-outline/10 disabled:opacity-60 text-center transition-colors"
+                  >
+                    <img src={item.imageUrl} alt="" className="w-12 h-12 object-contain" loading="lazy" />
+                    <span className="text-xs text-ink leading-tight">{item.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {myDrinkOrders.length > 0 && (
+            <div className="mt-4 pt-3 border-t">
+              <h3 className="text-xs font-semibold text-ink-muted uppercase tracking-wide mb-2">Your orders</h3>
+              <ul className="space-y-1">
+                {myDrinkOrders.map((o) => (
+                  <li key={o.id} className="flex items-center justify-between text-sm">
+                    <span>{o.item}</span>
+                    <span
+                      className={`text-xs ${
+                        o.status === "DELIVERED" ? "text-emerald-400" : o.status === "CANCELLED" ? "text-ink-muted" : "text-brand-300"
+                      }`}
+                    >
+                      {o.status}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {can(Permission.MANAGE_DRINK_ORDERS) && (
+        <div className="bg-accent border rounded-xl p-4">
+          <h2 className="font-semibold mb-3">
+            <i className="fa-solid fa-martini-glass-citrus text-brand-400 mr-1.5" />
+            Cabin service orders to fulfill
+          </h2>
+          <ul className="space-y-2">
+            {allDrinkOrders
+              .filter((o) => o.status === "PENDING")
+              .map((o) => (
+                <li key={o.id} className="flex items-center justify-between text-sm">
+                  <span>
+                    {o.item} <span className="text-ink-muted">· {o.user?.discordUsername}</span>
+                  </span>
+                  <button
+                    onClick={() => fulfillDrink(o.id, DrinkOrderStatus.DELIVERED)}
+                    className="text-xs text-brand-300 hover:text-brand-200 hover:underline"
+                  >
+                    Mark delivered
+                  </button>
+                </li>
+              ))}
+            {allDrinkOrders.filter((o) => o.status === "PENDING").length === 0 && (
+              <p className="text-sm text-ink-muted">No pending orders.</p>
+            )}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
