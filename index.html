@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="assets/icon.png" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.3.1/css/all.min.css"
+      integrity="sha512-QeR2VH+lsBE5LSAe1Q5EnTBbe7XTBubt8dG93Y7gidSgdMCr8nVqKcfKAMyN96SV8KDbZVTDXChatu5G2KQGzg=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    />
+    <link rel="stylesheet" href="style.css" />
+    <title>Airline Ops</title>
+  </head>
+  <body>
+    <nav class="nav">
+      <div class="nav-brand">
+        <img src="assets/icon.png" alt="" />
+        <img src="assets/logo-wordmark.png" alt="Airline Ops" style="height: 20px" />
+      </div>
+      <div class="nav-links">
+        <a href="downloads.html">Downloads</a>
+        <!--
+          TODO: point this at wherever packages/web actually ends up deployed
+          (Vercel/Netlify/your own server) - there's no public URL for it yet,
+          this is a placeholder.
+        -->
+        <a href="https://your-deployed-app-url.example.com" class="btn btn-primary">
+          <i class="fa-solid fa-arrow-right-to-bracket"></i> Try on Web
+        </a>
+      </div>
+    </nav>
+
+    <section class="hero">
+      <div class="hero-badge"><i class="fa-solid fa-circle-check" style="color: #5acbf5"></i> Built for Roblox virtual airlines</div>
+      <img src="assets/icon.png" alt="" class="icon" />
+      <h1>Run your airline like <span>it's real.</span></h1>
+      <p>
+        Flight scheduling, crew rosters, live fleet management, and Discord-based staff access - all in one
+        place, on the web or as a native app.
+      </p>
+      <div class="hero-actions">
+        <a href="https://your-deployed-app-url.example.com" class="btn btn-primary">
+          <i class="fa-solid fa-arrow-right-to-bracket"></i> Try on Web
+        </a>
+        <a href="downloads.html" class="btn btn-secondary">
+          <i class="fa-solid fa-download"></i> Download the app
+        </a>
+      </div>
+    </section>
+
+    <section class="features">
+      <div class="feature-card">
+        <i class="fa-solid fa-plane"></i>
+        <h3>Flight scheduling</h3>
+        <p>Publish flights, assign aircraft, and track live status from boarding to landed.</p>
+      </div>
+      <div class="feature-card">
+        <i class="fa-solid fa-user-shield"></i>
+        <h3>Discord-native roles</h3>
+        <p>Owner, Manager, Flight Host, Pilot, Passenger - synced straight from your Discord server.</p>
+      </div>
+      <div class="feature-card">
+        <i class="fa-solid fa-warehouse"></i>
+        <h3>Fleet management</h3>
+        <p>Track your aircraft, seat capacity, and status across your whole fleet.</p>
+      </div>
+      <div class="feature-card">
+        <i class="fa-solid fa-clock-rotate-left"></i>
+        <h3>Full audit trail</h3>
+        <p>Every role change, flight, and crew assignment logged - real accountability for staff.</p>
+      </div>
+    </section>
+
+    <footer>Airline Ops - an independent community project, not affiliated with Roblox Corporation.</footer>
+  </body>
+</html>
