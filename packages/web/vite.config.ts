@@ -8,8 +8,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   plugins: [react()],
   server: { port: 5173 },
-  // Electron loads the built files via file://, so asset URLs must be relative.
-  base: "./",
+  // Absolute by default - required for the real website, which gets loaded at
+  // arbitrary nested paths (e.g. /auth/callback after the OAuth redirect), where
+  // a relative base resolves assets against the WRONG directory (a page at
+  // /auth/callback requesting "./assets/x.js" fetches /auth/assets/x.js, a 404 -
+  // the script never loads, the page is just blank). Electron's build overrides
+  // this to "./" instead (see desktop's predist script), since it loads
+  // index.html via file:// where relative paths are what's actually needed.
+  base: process.env.VITE_BASE || "/",
   resolve: {
     alias: {
       // Point straight at shared's TypeScript source instead of its compiled CJS
