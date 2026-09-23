@@ -19,7 +19,7 @@ router.get("/", requirePermission(Permission.MANAGE_USER_ROLES), async (req, res
     include: { user: true },
     orderBy: { user: { discordUsername: "asc" } },
   });
-  res.json(memberships.map((m) => ({ ...m.user, role: m.role, membershipId: m.id })));
+  res.json(memberships.map((m) => ({ ...m.user, role: m.role, membershipId: m.id, roleLocked: m.roleLocked })));
 });
 
 // Everyone in the current airline whose Role can crew a flight (Owner/Manager/
@@ -36,11 +36,12 @@ router.get("/crew-eligible", requirePermission(Permission.MANAGE_CREW), async (r
 
 const roleSchema = z.object({ role: z.nativeEnum(Role) });
 
-// Manual override, Owner-only, scoped to the current airline's Membership for
-// that user. Roles normally resolve fresh from Discord server roles on every
-// login (see services/membershipSync.ts) - this exists for edge cases (bot
-// temporarily down, role mapping mid-change) and, for anything but OWNER, will
-// be overwritten the next time that person logs back in via Discord.
+// Permanent override, Owner-only, scoped to the current airline's Membership
+// for that user. Roles normally resolve fresh from Discord server roles on
+// every login (see services/membershipSync.ts) - setting one here marks it
+// roleLocked, so that sync leaves it alone from now on instead of silently
+// reverting it the next time that person logs back in via Discord. Use
+// /:id/role/unlock to hand a membership back to Discord-driven sync.
 router.patch("/:id/role", requirePermission(Permission.MANAGE_USER_ROLES), async (req, res) => {
   const parsed = roleSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -53,7 +54,7 @@ router.patch("/:id/role", requirePermission(Permission.MANAGE_USER_ROLES), async
 
   const membership = await prisma.membership.update({
     where: { id: before.id },
-    data: { role: parsed.data.role },
+    data: { role: parsed.data.role, roleLocked: true },
     include: { user: true },
   });
   recordAudit({
@@ -62,9 +63,36 @@ router.patch("/:id/role", requirePermission(Permission.MANAGE_USER_ROLES), async
     action: "user.role_override",
     targetType: "User",
     targetId: membership.userId,
-    detail: `${membership.user.discordUsername}: ${before.role} -> ${membership.role}`,
+    detail: `${membership.user.discordUsername}: ${before.role} -> ${membership.role} (permanent)`,
   });
-  res.json({ ...membership.user, role: membership.role });
+  res.json({ ...membership.user, role: membership.role, roleLocked: membership.roleLocked });
+});
+
+// Hands a membership back to Discord-driven sync - the opposite of the PATCH
+// above. Doesn't change the role immediately; it'll re-resolve from that
+// airline's RoleMapping + the person's current Discord roles next time sync
+// runs for them (their next login, or the next "Sync Discord roles now").
+router.post("/:id/role/unlock", requirePermission(Permission.MANAGE_USER_ROLES), async (req, res) => {
+  const before = await prisma.membership.findUnique({
+    where: { userId_airlineId: { userId: req.params.id, airlineId: req.membership!.airlineId } },
+    include: { user: true },
+  });
+  if (!before) return res.status(404).json({ error: "User is not a member of this airline" });
+
+  const membership = await prisma.membership.update({
+    where: { id: before.id },
+    data: { roleLocked: false },
+    include: { user: true },
+  });
+  recordAudit({
+    airlineId: req.membership!.airlineId,
+    actorId: req.user!.id,
+    action: "user.role_unlock",
+    targetType: "User",
+    targetId: membership.userId,
+    detail: `${membership.user.discordUsername}: role unlocked, will resync from Discord`,
+  });
+  res.json({ ...membership.user, role: membership.role, roleLocked: membership.roleLocked });
 });
 
 export default router;

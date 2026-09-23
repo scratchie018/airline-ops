@@ -82,7 +82,7 @@ router.post("/", requireAuth, async (req, res) => {
       slug,
       discordGuildId,
       createdById: req.user!.id,
-      memberships: { create: { userId: req.user!.id, role: Role.OWNER } },
+      memberships: { create: { userId: req.user!.id, role: Role.OWNER, roleLocked: true } },
     },
   });
 

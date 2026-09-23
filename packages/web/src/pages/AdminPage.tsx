@@ -46,7 +46,7 @@ export default function AdminPage() {
   );
 }
 
-type MemberUser = User & { role: Role };
+type MemberUser = User & { role: Role; roleLocked: boolean };
 
 function UsersTab() {
   const [users, setUsers] = useState<MemberUser[]>([]);
@@ -70,12 +70,21 @@ function UsersTab() {
     }
   }
 
+  async function unlockRole(id: string) {
+    setError(null);
+    try {
+      await apiFetch(`/users/${id}/role/unlock`, { method: "POST" });
+      load();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }
+
   return (
     <div className="bg-accent border rounded-xl overflow-hidden">
       <div className="px-4 pt-3 text-xs text-ink-muted">
-        Overrides here take effect immediately, but (except for Owner) get replaced the next time that
-        person logs in via Discord (their role re-resolves from Discord Role Mapping below) - use it for
-        quick fixes, not permanent assignment.
+        Setting a role here is permanent - it locks that person's role so Discord sync won't overwrite it
+        on their next login. Click "Unlock" to hand a role back to Discord Role Mapping below.
       </div>
       {error && <p className="text-sm text-tuired-400 px-4 pt-2">{error}</p>}
       <table className="w-full text-sm mt-2">
@@ -83,7 +92,8 @@ function UsersTab() {
           <tr>
             <th className="px-4 py-2">User</th>
             <th className="px-4 py-2">Current role</th>
-            <th className="px-4 py-2">Set role</th>
+            <th className="px-4 py-2">Set role (permanent)</th>
+            <th className="px-4 py-2" />
           </tr>
         </thead>
         <tbody className="divide-y">
@@ -93,7 +103,12 @@ function UsersTab() {
                 {u.discordAvatarUrl && <img src={u.discordAvatarUrl} alt="" className="w-6 h-6 rounded-full" />}
                 {u.discordUsername}
               </td>
-              <td className="px-4 py-2">{u.role.replace("_", " ")}</td>
+              <td className="px-4 py-2">
+                {u.role.replace("_", " ")}
+                {u.roleLocked && (
+                  <i className="fa-solid fa-lock text-ink-muted ml-1.5 text-xs" title="Locked - won't be changed by Discord sync" />
+                )}
+              </td>
               <td className="px-4 py-2">
                 <select
                   value={u.role}
@@ -107,11 +122,18 @@ function UsersTab() {
                   ))}
                 </select>
               </td>
+              <td className="px-4 py-2">
+                {u.roleLocked && (
+                  <button onClick={() => unlockRole(u.id)} className="text-xs text-brand-300 hover:text-brand-200 hover:underline">
+                    Unlock
+                  </button>
+                )}
+              </td>
             </tr>
           ))}
           {users.length === 0 && (
             <tr>
-              <td colSpan={3} className="px-4 py-6 text-center text-ink-muted">
+              <td colSpan={4} className="px-4 py-6 text-center text-ink-muted">
                 No users yet.
               </td>
             </tr>

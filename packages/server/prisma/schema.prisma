@@ -88,18 +88,22 @@ model Airline {
 /// A user's role within one specific airline - the same Discord account can have
 /// a Membership (and a different role) in several airlines at once, which is why
 /// Role moved here from User. Resolved fresh from that airline's Discord server
-/// roles on every login (see services/discordAuth.ts); the Owner membership
-/// created alongside an Airline is the one exception, set directly rather than
-/// synced, so a brand-new airline always has someone able to configure it.
+/// roles on every login (see services/discordAuth.ts) UNLESS roleLocked - set
+/// automatically on the Owner membership created alongside a new Airline (so a
+/// brand-new airline always has someone able to configure it, even before any
+/// RoleMapping exists to reconfirm their Discord role as Owner), and settable by
+/// an Owner on anyone via the Admin > Users panel for a genuinely permanent
+/// override that Discord sync won't silently revert.
 model Membership {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  airlineId String
-  airline   Airline  @relation(fields: [airlineId], references: [id], onDelete: Cascade)
-  role      Role     @default(PASSENGER)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  airlineId  String
+  airline    Airline  @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+  role       Role     @default(PASSENGER)
+  roleLocked Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@unique([userId, airlineId])
   @@index([airlineId, role])
