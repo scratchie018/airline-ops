@@ -10,19 +10,20 @@ function required(name: string): string {
 
 export const env = {
   databaseUrl: required("DATABASE_URL"),
+  // One shared Discord application for every airline on the platform - each
+  // airline is just a different guild this bot has been invited into, not a
+  // separate set of Discord credentials.
   discordClientId: required("DISCORD_CLIENT_ID"),
   discordClientSecret: required("DISCORD_CLIENT_SECRET"),
   discordRedirectUri: required("DISCORD_REDIRECT_URI"),
   discordBotToken: required("DISCORD_BOT_TOKEN"),
-  discordGuildId: required("DISCORD_GUILD_ID"),
-  discordRoleIds: {
-    OWNER: process.env.DISCORD_ROLE_ID_OWNER || "",
-    MANAGER: process.env.DISCORD_ROLE_ID_MANAGER || "",
-    FLIGHT_HOST: process.env.DISCORD_ROLE_ID_FLIGHT_HOST || "",
-    PILOT: process.env.DISCORD_ROLE_ID_PILOT || "",
-  },
+  // Optional now that Role is per-airline (Membership), not global on User -
+  // used exactly once, to fix up the placeholder guild ID the multi-airline
+  // migration leaves on the pre-existing default airline (see that migration's
+  // SQL and index.ts). Safe to remove from the environment after that airline's
+  // real guild ID has been set once, whether by this or by editing it in-app.
+  discordGuildId: process.env.DISCORD_GUILD_ID || "",
   jwtSecret: required("JWT_SECRET"),
   webOrigin: process.env.WEB_ORIGIN || "http://localhost:5173",
-  desktopRedirectOrigin: process.env.DESKTOP_REDIRECT_ORIGIN || "http://localhost:4100",
   port: Number(process.env.PORT) || 4000,
 };

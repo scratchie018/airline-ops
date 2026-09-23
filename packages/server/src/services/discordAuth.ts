@@ -22,12 +22,21 @@ interface DiscordGuildMember {
   roles: string[];
 }
 
+interface DiscordPartialGuild {
+  id: string;
+}
+
 export function buildAuthorizeUrl(state: string): string {
   const params = new URLSearchParams({
     client_id: env.discordClientId,
     redirect_uri: env.discordRedirectUri,
     response_type: "code",
-    scope: "identify",
+    // identify: who they are. guilds: which Discord servers they're in - used
+    // right after login to auto-discover which airlines (each backed by one
+    // Discord server) this account should get a Membership in, without the
+    // user having to manually type in a guild ID anywhere. Neither scope hands
+    // us anything sensitive beyond "member of these public-ish server IDs."
+    scope: "identify guilds",
     state,
     // No prompt=none here on purpose - that tells Discord to skip the consent
     // UI entirely and silently succeed-or-fail, which is for background
@@ -86,20 +95,52 @@ export function discordAvatarUrl(user: DiscordUser): string {
   return `https://cdn.discordapp.com/embed/avatars/${defaultIndex}.png`;
 }
 
-/** Looks up the user's roles in the configured guild using the bot token (not the
+/** Whether the shared bot has actually been invited into this guild - checked
+ * when someone tries to register a new Airline against it, so a guild ID typo
+ * (or a server the bot was never added to) fails fast with a clear message
+ * instead of silently creating an airline whose role sync can never work. */
+export async function isBotInGuild(guildId: string): Promise<boolean> {
+  const res = await fetch(`${DISCORD_API}/guilds/${guildId}`, {
+    headers: { Authorization: `Bot ${env.discordBotToken}` },
+  });
+  return res.ok;
+}
+
+/** The Discord guild IDs this user is actually a member of, straight from their
+ * own OAuth token (the `guilds` scope) - used right after login to work out
+ * which of the platform's airlines they should get a Membership in, without
+ * checking every airline's guild via the bot for every login. */
+export async function fetchUserGuildIds(accessToken: string): Promise<string[]> {
+  const res = await fetch(`${DISCORD_API}/users/@me/guilds`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch user's guilds: ${res.status} ${await res.text()}`);
+  }
+  const guilds = (await res.json()) as DiscordPartialGuild[];
+  return guilds.map((g) => g.id);
+}
+
+/** Looks up the user's roles in one airline's guild using the bot token (not the
  * user's own OAuth token - Discord doesn't reliably expose a normal user's guild
- * roles via the identify/guilds scopes, but a bot that's a member of the server can
- * always read this for any member) and maps them to one of the 5 app Roles.
- * Highest-privilege match wins when a user holds more than one mapped role;
- * PASSENGER is the default for anyone who holds none of the 4 staff roles - they
- * can still log in and book flights, just without any staff permissions. */
-export async function resolveAppRole(discordUserId: string): Promise<Role> {
-  const res = await fetch(`${DISCORD_API}/guilds/${env.discordGuildId}/members/${discordUserId}`, {
+ * roles via the identify/guilds scopes, but a bot that's a member of the server
+ * can always read this for any member) and maps them to one of the 5 app Roles
+ * using that airline's own RoleMapping table. Highest-privilege match wins when
+ * a user holds more than one mapped Discord role; PASSENGER is the default for
+ * anyone who holds none of the 4 staff roles - they can still log in and book
+ * flights, just without any staff permissions. */
+export async function resolveAppRoleForGuild(
+  discordUserId: string,
+  guildId: string,
+  airlineId: string
+): Promise<Role> {
+  const res = await fetch(`${DISCORD_API}/guilds/${guildId}/members/${discordUserId}`, {
     headers: { Authorization: `Bot ${env.discordBotToken}` },
   });
 
   if (res.status === 404) {
-    // Authenticated with Discord but not a member of the airline's server.
+    // Authenticated with Discord but not (or no longer) a member of this
+    // airline's server.
     return Role.PASSENGER;
   }
   if (!res.ok) {
@@ -109,30 +150,11 @@ export async function resolveAppRole(discordUserId: string): Promise<Role> {
   const member = (await res.json()) as DiscordGuildMember;
   const roleIds = new Set(member.roles);
 
-  // DB-configured mappings (set by an Owner in-app) take full priority over the
-  // env var fallback - the env vars exist purely to bootstrap a fresh install
-  // before any Owner has had a chance to configure anything through the UI.
-  const dbMappings = await prisma.roleMapping.findMany();
-  if (dbMappings.length > 0) {
-    const byRole = new Map(dbMappings.map((m) => [m.discordRoleId, m.appRole as Role]));
-    for (const appRole of ROLE_PRECEDENCE) {
-      const match = dbMappings.find((m) => m.appRole === appRole && roleIds.has(m.discordRoleId));
-      if (match) return byRole.get(match.discordRoleId)!;
-    }
-    return Role.PASSENGER;
-  }
-
-  const envPrecedence: [Role, string][] = [
-    [Role.OWNER, env.discordRoleIds.OWNER],
-    [Role.MANAGER, env.discordRoleIds.MANAGER],
-    [Role.FLIGHT_HOST, env.discordRoleIds.FLIGHT_HOST],
-    [Role.PILOT, env.discordRoleIds.PILOT],
-  ];
-
-  for (const [appRole, discordRoleId] of envPrecedence) {
-    if (discordRoleId && roleIds.has(discordRoleId)) {
-      return appRole;
-    }
+  const mappings = await prisma.roleMapping.findMany({ where: { airlineId } });
+  const byRole = new Map(mappings.map((m) => [m.discordRoleId, m.appRole as Role]));
+  for (const appRole of ROLE_PRECEDENCE) {
+    const match = mappings.find((m) => m.appRole === appRole && roleIds.has(m.discordRoleId));
+    if (match) return byRole.get(match.discordRoleId)!;
   }
   return Role.PASSENGER;
 }

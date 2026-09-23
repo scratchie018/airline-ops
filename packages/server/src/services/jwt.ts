@@ -1,10 +1,11 @@
 import jwt from "jsonwebtoken";
-import { Role } from "shared";
 import { env } from "../env";
 
+// No Role here anymore - a user's role is per-airline (Membership), not a
+// single global thing a session token can carry. requireAirlineMembership
+// looks it up fresh per-request from the X-Airline-Id header instead.
 export interface SessionPayload {
   userId: string;
-  role: Role;
 }
 
 const SESSION_TTL = "7d";

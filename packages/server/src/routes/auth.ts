@@ -1,6 +1,5 @@
 import { Router } from "express";
 import jwt from "jsonwebtoken";
-import { Role } from "shared";
 import { prisma } from "../db";
 import { env } from "../env";
 import {
@@ -8,8 +7,9 @@ import {
   discordAvatarUrl,
   exchangeCodeForToken,
   fetchDiscordUser,
-  resolveAppRole,
+  fetchUserGuildIds,
 } from "../services/discordAuth";
+import { syncMembershipsFromDiscordGuilds } from "../services/membershipSync";
 import { requireAuth } from "../middleware/auth";
 import { signSession } from "../services/jwt";
 import { consumeDesktopSession, createDesktopSession } from "../services/desktopAuthSessions";
@@ -65,26 +65,35 @@ router.get("/discord/callback", async (req, res) => {
   try {
     const accessToken = await exchangeCodeForToken(code);
     const discordUser = await fetchDiscordUser(accessToken);
-    const role = await resolveAppRole(discordUser.id);
 
     const user = await prisma.user.upsert({
       where: { discordId: discordUser.id },
       update: {
         discordUsername: discordUser.username,
         discordAvatarUrl: discordAvatarUrl(discordUser),
-        role,
       },
       create: {
         discordId: discordUser.id,
         discordUsername: discordUser.username,
         discordAvatarUrl: discordAvatarUrl(discordUser),
-        role,
       },
     });
 
-    // Prisma generates its own Role enum type (structurally identical to shared's,
-    // but TS enums are nominal - not the same type). Values line up 1:1 by design.
-    const sessionToken = signSession({ userId: user.id, role: user.role as unknown as Role });
+    // Auto-join every airline whose Discord server this account is actually a
+    // member of, with a Role freshly resolved from that airline's own role
+    // mapping - see membershipSync.ts for why an existing OWNER membership is
+    // left alone here.
+    try {
+      const guildIds = await fetchUserGuildIds(accessToken);
+      await syncMembershipsFromDiscordGuilds(user.id, discordUser.id, guildIds);
+    } catch (syncErr) {
+      // Membership sync failing (e.g. a transient Discord API hiccup) shouldn't
+      // block login entirely - worst case someone's role list is momentarily
+      // stale, not that they can't sign in at all.
+      console.error("Membership sync failed:", syncErr);
+    }
+
+    const sessionToken = signSession({ userId: user.id });
 
     if (client === "desktop") {
       // No redirect back to the desktop app - a localhost listener on the user's

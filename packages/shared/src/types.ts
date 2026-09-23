@@ -42,8 +42,26 @@ export interface User {
   discordId: string;
   discordUsername: string;
   discordAvatarUrl: string | null;
-  role: Role;
   createdAt: string;
+}
+
+/** One virtual airline "workspace" - the multi-tenancy boundary. */
+export interface Airline {
+  id: string;
+  name: string;
+  slug: string;
+  discordGuildId: string;
+  createdAt: string;
+}
+
+/** The signed-in user's membership (and Role) in one specific airline - a
+ * Discord account can hold a different Membership in several airlines at
+ * once, which is why Role lives here rather than on User. */
+export interface Membership {
+  id: string;
+  airlineId: string;
+  role: Role;
+  airline: Airline;
 }
 
 export interface Aircraft {
@@ -102,10 +120,12 @@ export interface Paginated<T> {
   pageSize: number;
 }
 
-/** Maps one Discord role ID to one app Role - configured by an Owner instead of
- * hardcoded server env vars. See packages/server's RoleMapping model. */
+/** Maps one Discord role ID (in one airline's server) to one app Role -
+ * configured by that airline's Owner instead of hardcoded server env vars.
+ * See packages/server's RoleMapping model. */
 export interface RoleMapping {
   id: string;
+  airlineId: string;
   discordRoleId: string;
   appRole: Role;
   label: string | null;

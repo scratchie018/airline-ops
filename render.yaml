@@ -21,8 +21,6 @@ services:
         generateValue: true
       - key: WEB_ORIGIN
         value: https://airline-ops-web.onrender.com
-      - key: DESKTOP_REDIRECT_ORIGIN
-        value: http://localhost:4100
       - key: DISCORD_CLIENT_ID
         sync: false
       - key: DISCORD_CLIENT_SECRET
@@ -31,18 +29,10 @@ services:
         value: https://airline-ops-api.onrender.com/auth/discord/callback
       - key: DISCORD_BOT_TOKEN
         sync: false
+      # Optional, one-time-use only - see .env.example for what this actually
+      # does now that Role is per-airline. Every airline created after this one
+      # sets its own guild ID through the UI instead.
       - key: DISCORD_GUILD_ID
-        sync: false
-      # Role IDs are optional here - once deployed, set these up through the
-      # Admin > Discord Role Mapping page instead (takes effect immediately,
-      # no redeploy needed). These env vars only matter as a first-boot fallback.
-      - key: DISCORD_ROLE_ID_OWNER
-        sync: false
-      - key: DISCORD_ROLE_ID_MANAGER
-        sync: false
-      - key: DISCORD_ROLE_ID_FLIGHT_HOST
-        sync: false
-      - key: DISCORD_ROLE_ID_PILOT
         sync: false
 
   # The website - static build, talks to airline-ops-api.

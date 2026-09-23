@@ -18,11 +18,11 @@ const STATUS_FLOW: FlightStatus[] = [
   FlightStatus.LANDED,
 ];
 
-type CrewEligibleUser = Pick<User, "id" | "discordUsername" | "discordAvatarUrl" | "role">;
+type CrewEligibleUser = Pick<User, "id" | "discordUsername" | "discordAvatarUrl"> & { role: Role };
 
 export default function FlightDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { user, can } = useAuth();
+  const { user, currentMembership, can } = useAuth();
   const [flight, setFlight] = useState<FlightDetail | null>(null);
   const [crewOptions, setCrewOptions] = useState<CrewEligibleUser[]>([]);
   const [crewUserId, setCrewUserId] = useState("");
@@ -45,7 +45,7 @@ export default function FlightDetailPage() {
 
   if (!flight) return <p className="text-ink-muted">Loading...</p>;
 
-  const isManagement = user?.role === Role.OWNER || user?.role === Role.MANAGER;
+  const isManagement = currentMembership?.role === Role.OWNER || currentMembership?.role === Role.MANAGER;
   const isCrewingThisFlight = flight.crew.some((c) => c.userId === user?.id);
   const canUpdateStatus = can(Permission.UPDATE_FLIGHT_STATUS) && (isManagement || isCrewingThisFlight);
 

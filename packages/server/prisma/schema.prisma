@@ -46,38 +46,83 @@ model User {
   discordId        String   @unique
   discordUsername  String
   discordAvatarUrl String?
-  role             Role     @default(PASSENGER)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
+  memberships      Membership[]
   createdFlights   Flight[]         @relation("FlightCreatedBy")
   crewAssignments  CrewAssignment[]
   bookings         Booking[]
   auditLogEntries  AuditLog[]
-
-  @@index([role])
+  ownedAirlines    Airline[]        @relation("AirlineCreatedBy")
 }
 
-/// Maps one Discord role ID (from the airline's server) to one app Role. Lets an
+/// One virtual airline "workspace" - the multi-tenancy boundary. Everything else
+/// airline-specific (memberships/roles, fleet, flights, role mappings, audit log)
+/// hangs off this via airlineId. Identified by the Discord server its staff/roles
+/// live in; the shared Discord app's bot must be a member of that guild.
+model Airline {
+  id             String   @id @default(uuid())
+  name           String
+  slug           String   @unique
+  discordGuildId String   @unique
+  createdById    String
+  createdBy      User     @relation("AirlineCreatedBy", fields: [createdById], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  memberships  Membership[]
+  roleMappings RoleMapping[]
+  auditLog     AuditLog[]
+  aircraft     Aircraft[]
+  flights      Flight[]
+}
+
+/// A user's role within one specific airline - the same Discord account can have
+/// a Membership (and a different role) in several airlines at once, which is why
+/// Role moved here from User. Resolved fresh from that airline's Discord server
+/// roles on every login (see services/discordAuth.ts); the Owner membership
+/// created alongside an Airline is the one exception, set directly rather than
+/// synced, so a brand-new airline always has someone able to configure it.
+model Membership {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  airlineId String
+  airline   Airline  @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+  role      Role     @default(PASSENGER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, airlineId])
+  @@index([airlineId, role])
+}
+
+/// Maps one Discord role ID (from this airline's server) to one app Role. Lets an
 /// Owner configure role sync entirely through the UI - no more editing server env
-/// vars and restarting just to add a role or fix a typo'd ID. Checked first on
-/// every login; the env var mapping (DISCORD_ROLE_ID_*) still exists purely as a
-/// fallback so a fresh install has something to bootstrap the first Owner with.
+/// vars and restarting just to add a role or fix a typo'd ID. Scoped per airline
+/// since every airline has its own Discord server with its own role IDs.
 model RoleMapping {
   id            String   @id @default(uuid())
-  discordRoleId String   @unique
+  airlineId     String
+  airline       Airline  @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+  discordRoleId String
   appRole       Role
   label         String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@unique([airlineId, discordRoleId])
 }
 
 /// A lightweight trail of who did what to what - not exhaustive, just the actions
 /// that matter for accountability in a multi-Owner/Manager org (role changes,
 /// flight cancellations, crew changes). Append-only, never edited or deleted via
-/// the API.
+/// the API. Scoped per airline like everything else operational.
 model AuditLog {
   id         String   @id @default(uuid())
+  airlineId  String
+  airline    Airline  @relation(fields: [airlineId], references: [id], onDelete: Cascade)
   actorId    String
   actor      User     @relation(fields: [actorId], references: [id])
   action     String
@@ -86,13 +131,15 @@ model AuditLog {
   detail     String?
   createdAt  DateTime @default(now())
 
-  @@index([createdAt])
+  @@index([airlineId, createdAt])
   @@index([actorId])
 }
 
 model Aircraft {
   id           String         @id @default(uuid())
-  tailNumber   String         @unique
+  airlineId    String
+  airline      Airline        @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+  tailNumber   String
   model        String
   seatCapacity Int
   status       AircraftStatus @default(ACTIVE)
@@ -100,11 +147,15 @@ model Aircraft {
   updatedAt    DateTime       @updatedAt
 
   flights Flight[]
+
+  @@unique([airlineId, tailNumber])
 }
 
 model Flight {
   id            String       @id @default(uuid())
-  flightNumber  String       @unique
+  airlineId     String
+  airline       Airline      @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+  flightNumber  String
   aircraftId    String
   aircraft      Aircraft     @relation(fields: [aircraftId], references: [id])
   origin        String
@@ -120,7 +171,8 @@ model Flight {
   crew     CrewAssignment[]
   bookings Booking[]
 
-  @@index([status])
+  @@unique([airlineId, flightNumber])
+  @@index([airlineId, status])
   @@index([departureTime])
 }
 

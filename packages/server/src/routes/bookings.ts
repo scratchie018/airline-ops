@@ -2,9 +2,11 @@ import { Router } from "express";
 import { z } from "zod";
 import { BookingStatus, Permission, hasPermission } from "shared";
 import { prisma } from "../db";
-import { requireAuth, requirePermission } from "../middleware/auth";
+import { requireAirlineMembership, requireAuth, requirePermission } from "../middleware/auth";
 
 const router = Router();
+
+router.use(requireAuth, requireAirlineMembership);
 
 const createSchema = z.object({
   seatNumber: z.string().max(10).optional(),
@@ -13,14 +15,14 @@ const createSchema = z.object({
 // Books the current user onto a flight. Wrapped in a transaction so two people
 // booking the literal last seat at the same moment can't both succeed - matters
 // once this is handling hundreds of concurrent passengers, not just for one person.
-router.post("/flights/:flightId/bookings", requireAuth, requirePermission(Permission.BOOK_FLIGHT), async (req, res) => {
+router.post("/flights/:flightId/bookings", requirePermission(Permission.BOOK_FLIGHT), async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
   try {
     const booking = await prisma.$transaction(async (tx) => {
-      const flight = await tx.flight.findUnique({
-        where: { id: req.params.flightId },
+      const flight = await tx.flight.findFirst({
+        where: { id: req.params.flightId, airlineId: req.membership!.airlineId },
         include: { aircraft: true },
       });
       if (!flight) throw new Error("NOT_FOUND");
@@ -46,36 +48,43 @@ router.post("/flights/:flightId/bookings", requireAuth, requirePermission(Permis
   }
 });
 
-router.get("/flights/:flightId/bookings", requireAuth, requirePermission(Permission.VIEW_ALL_BOOKINGS), async (req, res) => {
+router.get("/flights/:flightId/bookings", requirePermission(Permission.VIEW_ALL_BOOKINGS), async (req, res) => {
+  const flight = await prisma.flight.findFirst({
+    where: { id: req.params.flightId, airlineId: req.membership!.airlineId },
+  });
+  if (!flight) return res.status(404).json({ error: "Flight not found" });
+
   const bookings = await prisma.booking.findMany({
-    where: { flightId: req.params.flightId },
+    where: { flightId: flight.id },
     include: { user: { select: { id: true, discordUsername: true, discordAvatarUrl: true } } },
     orderBy: { createdAt: "asc" },
   });
   res.json(bookings);
 });
 
-router.get("/bookings/me", requireAuth, async (req, res) => {
+router.get("/bookings/me", async (req, res) => {
   const bookings = await prisma.booking.findMany({
-    where: { userId: req.user!.id },
+    where: { userId: req.user!.id, flight: { airlineId: req.membership!.airlineId } },
     include: { flight: { include: { aircraft: true } } },
     orderBy: { createdAt: "desc" },
   });
   res.json(bookings);
 });
 
-router.delete("/bookings/:id", requireAuth, async (req, res) => {
-  const booking = await prisma.booking.findUnique({ where: { id: req.params.id } });
+router.delete("/bookings/:id", async (req, res) => {
+  const booking = await prisma.booking.findFirst({
+    where: { id: req.params.id, flight: { airlineId: req.membership!.airlineId } },
+  });
   if (!booking) return res.status(404).json({ error: "Booking not found" });
 
   const isOwnBooking = booking.userId === req.user!.id;
-  const canManageOthers = hasPermission(req.user!.role, Permission.VIEW_ALL_BOOKINGS);
+  const canManageOthers = hasPermission(req.membership!.role, Permission.VIEW_ALL_BOOKINGS);
   if (!isOwnBooking && !canManageOthers) {
     return res.status(403).json({ error: "Not permitted" });
   }
 
   const updated = await prisma.booking.update({
-    where: { id: req.params.id },
+    where: { id: booking.id },
     data: { status: BookingStatus.CANCELLED },
   });
   res.json(updated);

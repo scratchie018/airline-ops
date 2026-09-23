@@ -7,6 +7,8 @@ export {
 } from "./types";
 export type {
   User,
+  Airline,
+  Membership,
   Aircraft,
   Flight,
   CrewAssignment,

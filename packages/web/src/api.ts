@@ -3,6 +3,22 @@ export const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 export const isElectron = typeof window !== "undefined" && !!window.electronAPI;
 
 const WEB_TOKEN_KEY = "airline_ops_token";
+const CURRENT_AIRLINE_KEY = "airline_ops_current_airline";
+
+/** Which airline every airline-scoped request is sent for - sent as the
+ * X-Airline-Id header (see server/src/middleware/auth.ts). A plain localStorage
+ * value rather than anything in the session token, since one Discord account
+ * can be a member of several airlines and switching between them should be
+ * instant and local, not a round trip to re-mint a token. */
+export function getCurrentAirlineId(): string | null {
+  return localStorage.getItem(CURRENT_AIRLINE_KEY);
+}
+export function setCurrentAirlineId(id: string) {
+  localStorage.setItem(CURRENT_AIRLINE_KEY, id);
+}
+export function clearCurrentAirlineId() {
+  localStorage.removeItem(CURRENT_AIRLINE_KEY);
+}
 
 /** Web build's equivalent of the desktop app's encrypted token file - just
  * localStorage, scoped to this origin. Not as hardened as Electron's safeStorage,
@@ -32,10 +48,16 @@ export class ApiError extends Error {
   }
 }
 
+function airlineHeader(): Record<string, string> {
+  const id = getCurrentAirlineId();
+  return id ? { "X-Airline-Id": id } : {};
+}
+
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(await authHeader()),
+    ...airlineHeader(),
     ...((init.headers as Record<string, string>) || {}),
   };
 
@@ -63,7 +85,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
  * token apiFetch uses. */
 export async function downloadFile(path: string, filename: string): Promise<void> {
   const res = await fetch(`${API_URL}${path}`, {
-    headers: await authHeader(),
+    headers: { ...(await authHeader()), ...airlineHeader() },
   });
   if (!res.ok) throw new ApiError(res.status, res.statusText);
 

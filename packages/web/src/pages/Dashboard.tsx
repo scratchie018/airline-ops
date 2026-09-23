@@ -6,7 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import StatusBadge from "../components/StatusBadge";
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, currentMembership } = useAuth();
   const [upcoming, setUpcoming] = useState<Flight[]>([]);
 
   useEffect(() => {
@@ -21,7 +21,9 @@ export default function Dashboard() {
   return (
     <div>
       <h1 className="text-2xl font-bold mb-1 text-ink">Welcome back, {user?.discordUsername}</h1>
-      <p className="text-ink-muted mb-6">You're signed in as {user?.role.replace("_", " ")}.</p>
+      <p className="text-ink-muted mb-6">
+        You're signed in as {currentMembership?.role.replace("_", " ")} at {currentMembership?.airline.name}.
+      </p>
 
       <div className="bg-accent border rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">

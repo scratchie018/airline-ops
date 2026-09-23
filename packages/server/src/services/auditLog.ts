@@ -1,6 +1,7 @@
 import { prisma } from "../db";
 
 interface AuditParams {
+  airlineId: string;
   actorId: string;
   action: string;
   targetType: string;
@@ -14,6 +15,7 @@ export function recordAudit(params: AuditParams): void {
   prisma.auditLog
     .create({
       data: {
+        airlineId: params.airlineId,
         actorId: params.actorId,
         action: params.action,
         targetType: params.targetType,

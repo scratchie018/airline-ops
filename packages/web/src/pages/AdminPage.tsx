@@ -35,12 +35,14 @@ export default function AdminPage() {
   );
 }
 
+type MemberUser = User & { role: Role };
+
 function UsersTab() {
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<MemberUser[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
-    setUsers(await apiFetch<User[]>("/users"));
+    setUsers(await apiFetch<MemberUser[]>("/users"));
   }
 
   useEffect(() => {
@@ -60,9 +62,9 @@ function UsersTab() {
   return (
     <div className="bg-accent border rounded-xl overflow-hidden">
       <div className="px-4 pt-3 text-xs text-ink-muted">
-        Overrides here take effect immediately, but get replaced the next time that person logs in via
-        Discord (their role re-resolves from Discord Role Mapping below) - use it for quick fixes, not
-        permanent assignment.
+        Overrides here take effect immediately, but (except for Owner) get replaced the next time that
+        person logs in via Discord (their role re-resolves from Discord Role Mapping below) - use it for
+        quick fixes, not permanent assignment.
       </div>
       {error && <p className="text-sm text-tuired-400 px-4 pt-2">{error}</p>}
       <table className="w-full text-sm mt-2">
@@ -217,7 +219,7 @@ function MappingsTab() {
             {mappings.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-4 py-6 text-center text-ink-muted">
-                  No mappings configured yet - falling back to the server's env var configuration.
+                  No mappings configured yet - everyone who isn't the Owner defaults to Passenger.
                 </td>
               </tr>
             )}
