@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, ipcMain } from "electron";
+import { app, BrowserWindow, Menu, ipcMain, shell } from "electron";
 import { join } from "node:path";
 
 // The desktop app is just the real website loaded in a Chromium shell now -
@@ -38,6 +38,30 @@ function createWindow() {
 
   mainWindow.on("maximize", () => mainWindow?.webContents.send("window:state-changed", true));
   mainWindow.on("unmaximize", () => mainWindow?.webContents.send("window:state-changed", false));
+
+  // Discord's OAuth consent page opens its next step as a new window/tab
+  // rather than a plain same-page redirect - Electron's default response to
+  // that (silently deny the popup, or in some configurations hand it to the
+  // OS's default browser) is exactly the "the app opens in Chrome, login
+  // finishes there instead of coming back to the app" symptom reported. This
+  // intercepts every such attempt and just navigates this one window to it
+  // instead of ever spawning a second window - genuinely external links
+  // (nothing in this app currently, but a future docs/support link, say)
+  // still get handed to the system browser rather than swallowed into the
+  // app shell.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    const ownDomains = ["discord.com", new URL(WEB_URL).hostname, "airline-ops-api.onrender.com", "localhost"];
+    const isOwnFlow = ownDomains.some((host) => {
+      try {
+        return new URL(url).hostname.endsWith(host);
+      } catch {
+        return false;
+      }
+    });
+    if (isOwnFlow) mainWindow?.loadURL(url);
+    else shell.openExternal(url);
+    return { action: "deny" };
+  });
 
   mainWindow.loadURL(isDev ? "http://localhost:5173" : WEB_URL);
 }
