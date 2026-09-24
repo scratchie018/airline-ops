@@ -80,6 +80,14 @@ function UsersTab() {
     }
   }
 
+  // Locks a role in place without changing it - the dropdown only locks when
+  // you pick a *different* role, so this is how you lock someone who's
+  // already at the role you want (e.g. a Discord-synced Passenger you don't
+  // want demoted/promoted if their Discord roles change later).
+  async function lockRole(id: string, currentRole: Role) {
+    await setRole(id, currentRole);
+  }
+
   return (
     <div className="bg-accent border rounded-xl overflow-hidden">
       <div className="px-4 pt-3 text-xs text-ink-muted">
@@ -93,7 +101,7 @@ function UsersTab() {
             <th className="px-4 py-2">User</th>
             <th className="px-4 py-2">Current role</th>
             <th className="px-4 py-2">Set role (permanent)</th>
-            <th className="px-4 py-2" />
+            <th className="px-4 py-2">Lock</th>
           </tr>
         </thead>
         <tbody className="divide-y">
@@ -123,9 +131,16 @@ function UsersTab() {
                 </select>
               </td>
               <td className="px-4 py-2">
-                {u.roleLocked && (
-                  <button onClick={() => unlockRole(u.id)} className="text-xs text-brand-300 hover:text-brand-200 hover:underline">
-                    Unlock
+                {u.roleLocked ? (
+                  <button onClick={() => unlockRole(u.id)} className="text-xs text-brand-300 hover:text-brand-200 hover:underline whitespace-nowrap">
+                    <i className="fa-solid fa-lock-open mr-1" /> Unlock
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => lockRole(u.id, u.role)}
+                    className="text-xs text-ink-muted hover:text-ink hover:underline whitespace-nowrap"
+                  >
+                    <i className="fa-solid fa-lock mr-1" /> Lock
                   </button>
                 )}
               </td>
