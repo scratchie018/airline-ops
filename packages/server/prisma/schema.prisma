@@ -69,14 +69,19 @@ model User {
 /// hangs off this via airlineId. Identified by the Discord server its staff/roles
 /// live in; the shared Discord app's bot must be a member of that guild.
 model Airline {
-  id             String   @id @default(uuid())
-  name           String
-  slug           String   @unique
-  discordGuildId String   @unique
-  createdById    String
-  createdBy      User     @relation("AirlineCreatedBy", fields: [createdById], references: [id])
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                String   @id @default(uuid())
+  name              String
+  slug              String   @unique
+  discordGuildId    String   @unique
+  /// Posts flight announcements (scheduled/status changes/cancellations) to this
+  /// channel automatically - a real Discord webhook URL, validated server-side
+  /// against Discord's own URL shape before it's ever stored or posted to, since
+  /// this field drives a server-side outbound request (see discordWebhook.ts).
+  discordWebhookUrl String?
+  createdById       String
+  createdBy         User     @relation("AirlineCreatedBy", fields: [createdById], references: [id])
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   memberships  Membership[]
   roleMappings RoleMapping[]

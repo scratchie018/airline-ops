@@ -5,6 +5,7 @@ import { prisma } from "../db";
 import { env } from "../env";
 import { requireAuth } from "../middleware/auth";
 import { isBotInGuild } from "../services/discordAuth";
+import { isValidDiscordWebhookUrl } from "../services/discordWebhook";
 import { syncAllMembersForAirline } from "../services/membershipSync";
 
 const DISCORD_API = "https://discord.com/api/v10";
@@ -95,6 +96,12 @@ router.post("/", requireAuth, async (req, res) => {
 const updateSchema = z.object({
   name: z.string().min(2).max(80).optional(),
   discordGuildId: z.string().min(1).max(32).optional(),
+  // Empty string clears it; a non-empty value must be a real Discord webhook
+  // URL (see discordWebhook.ts for why that's enforced server-side too, not
+  // just here - this field drives an outbound request from this server).
+  discordWebhookUrl: z
+    .union([z.literal(""), z.string().refine(isValidDiscordWebhookUrl, "Must be a Discord webhook URL")])
+    .optional(),
 });
 
 // Owner-only, checked manually here rather than via requireAirlineMembership +
@@ -122,8 +129,14 @@ router.patch("/:id", requireAuth, async (req, res) => {
     }
   }
 
+  const data = {
+    ...parsed.data,
+    // "" means "clear it" - Prisma needs an explicit null, not an empty string.
+    discordWebhookUrl: parsed.data.discordWebhookUrl === "" ? null : parsed.data.discordWebhookUrl,
+  };
+
   try {
-    const airline = await prisma.airline.update({ where: { id: req.params.id }, data: parsed.data });
+    const airline = await prisma.airline.update({ where: { id: req.params.id }, data });
     res.json(airline);
     if (parsed.data.discordGuildId) {
       syncAllMembersForAirline(airline.id).catch((err) => console.error("Post-edit role sync failed:", err));

@@ -1,7 +1,9 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AuditLogEntry, Paginated, Permission, Role, RoleMapping, User } from "shared";
 import { apiFetch } from "../api";
 import { useAuth } from "../auth/AuthContext";
+import { useConfirm } from "../components/ConfirmDialog";
+import { useToast } from "../components/Toast";
 
 type Tab = "users" | "mappings" | "audit";
 
@@ -49,8 +51,10 @@ export default function AdminPage() {
 type MemberUser = User & { role: Role; roleLocked: boolean };
 
 function UsersTab() {
+  const toast = useToast();
   const [users, setUsers] = useState<MemberUser[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   async function load() {
     setUsers(await apiFetch<MemberUser[]>("/users"));
@@ -60,10 +64,17 @@ function UsersTab() {
     load();
   }, []);
 
+  const visibleUsers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((u) => u.discordUsername.toLowerCase().includes(q));
+  }, [users, search]);
+
   async function setRole(id: string, role: Role) {
     setError(null);
     try {
       await apiFetch(`/users/${id}/role`, { method: "PATCH", body: JSON.stringify({ role }) });
+      toast.success("Role updated");
       load();
     } catch (err: any) {
       setError(err.message);
@@ -74,6 +85,7 @@ function UsersTab() {
     setError(null);
     try {
       await apiFetch(`/users/${id}/role/unlock`, { method: "POST" });
+      toast.success("Role unlocked - will resync from Discord");
       load();
     } catch (err: any) {
       setError(err.message);
@@ -90,9 +102,20 @@ function UsersTab() {
 
   return (
     <div className="bg-accent border rounded-xl overflow-hidden">
-      <div className="px-4 pt-3 text-xs text-ink-muted">
-        Setting a role here is permanent - it locks that person's role so Discord sync won't overwrite it
-        on their next login. Click "Unlock" to hand a role back to Discord Role Mapping below.
+      <div className="px-4 pt-3 flex items-center justify-between gap-3">
+        <p className="text-xs text-ink-muted">
+          Setting a role here is permanent - it locks that person's role so Discord sync won't overwrite it
+          on their next login. Click "Unlock" to hand a role back to Discord Role Mapping below.
+        </p>
+        <div className="relative shrink-0 w-44">
+          <i className="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-muted text-xs" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search..."
+            className="w-full border rounded-lg pl-7 pr-2 py-1 text-xs bg-bg text-ink placeholder:text-ink-muted"
+          />
+        </div>
       </div>
       {error && <p className="text-sm text-tuired-400 px-4 pt-2">{error}</p>}
       <table className="w-full text-sm mt-2">
@@ -105,7 +128,7 @@ function UsersTab() {
           </tr>
         </thead>
         <tbody className="divide-y">
-          {users.map((u) => (
+          {visibleUsers.map((u) => (
             <tr key={u.id}>
               <td className="px-4 py-2 flex items-center gap-2">
                 {u.discordAvatarUrl && <img src={u.discordAvatarUrl} alt="" className="w-6 h-6 rounded-full" />}
@@ -146,10 +169,10 @@ function UsersTab() {
               </td>
             </tr>
           ))}
-          {users.length === 0 && (
+          {visibleUsers.length === 0 && (
             <tr>
               <td colSpan={4} className="px-4 py-6 text-center text-ink-muted">
-                No users yet.
+                {users.length === 0 ? "No users yet." : "No users match your search."}
               </td>
             </tr>
           )}
@@ -161,6 +184,8 @@ function UsersTab() {
 
 function MappingsTab() {
   const { currentMembership } = useAuth();
+  const toast = useToast();
+  const confirm = useConfirm();
   const isOwner = currentMembership?.role === Role.OWNER;
   const assignableRoles = isOwner
     ? [Role.OWNER, Role.MANAGER, Role.FLIGHT_HOST, Role.PILOT]
@@ -190,6 +215,7 @@ function MappingsTab() {
         method: "POST",
         body: JSON.stringify({ discordRoleId, appRole, label: label || undefined }),
       });
+      toast.success("Mapping added");
       setDiscordRoleId("");
       setLabel("");
       load();
@@ -199,8 +225,14 @@ function MappingsTab() {
   }
 
   async function remove(id: string) {
-    if (!confirm("Remove this mapping? Anyone with that Discord role will fall back to Passenger on next login.")) return;
+    const ok = await confirm({
+      message: "Remove this mapping? Anyone with that Discord role will fall back to Passenger on next login.",
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (!ok) return;
     await apiFetch(`/admin/role-mappings/${id}`, { method: "DELETE" });
+    toast.success("Mapping removed");
     load();
   }
 

@@ -1,16 +1,30 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Aircraft, Flight, Paginated, Permission } from "shared";
+import { Aircraft, Flight, FlightStatus, Paginated, Permission } from "shared";
 import { apiFetch } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import StatusBadge from "../components/StatusBadge";
+import { useToast } from "../components/Toast";
+
+const STATUS_FILTERS: (FlightStatus | "ALL")[] = [
+  "ALL",
+  FlightStatus.SCHEDULED,
+  FlightStatus.BOARDING,
+  FlightStatus.DEPARTED,
+  FlightStatus.EN_ROUTE,
+  FlightStatus.LANDED,
+  FlightStatus.CANCELLED,
+];
 
 export default function FlightsPage() {
   const { can } = useAuth();
+  const toast = useToast();
   const [flights, setFlights] = useState<(Flight & { aircraft: Aircraft })[]>([]);
   const [fleet, setFleet] = useState<Aircraft[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<FlightStatus | "ALL">("ALL");
 
   const [flightNumber, setFlightNumber] = useState("");
   const [aircraftId, setAircraftId] = useState("");
@@ -20,7 +34,10 @@ export default function FlightsPage() {
   const [arrivalTime, setArrivalTime] = useState("");
 
   async function load() {
-    const res = await apiFetch<Paginated<Flight & { aircraft: Aircraft }>>("/flights?pageSize=100");
+    const params = new URLSearchParams({ pageSize: "100" });
+    if (search.trim()) params.set("q", search.trim());
+    if (statusFilter !== "ALL") params.set("status", statusFilter);
+    const res = await apiFetch<Paginated<Flight & { aircraft: Aircraft }>>(`/flights?${params}`);
     setFlights(res.items);
   }
 
@@ -32,6 +49,13 @@ export default function FlightsPage() {
       });
     }
   }, []);
+
+  // Debounced re-fetch on search/status change, rather than filtering
+  // client-side, so this scales past the first page of flights too.
+  useEffect(() => {
+    const id = setTimeout(load, 250);
+    return () => clearTimeout(id);
+  }, [search, statusFilter]);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -48,6 +72,7 @@ export default function FlightsPage() {
           arrivalTime: new Date(arrivalTime).toISOString(),
         }),
       });
+      toast.success(`${flightNumber} scheduled`);
       setFlightNumber("");
       setOrigin("");
       setDestination("");
@@ -62,17 +87,40 @@ export default function FlightsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold"><i className="fa-solid fa-plane text-brand-400 mr-2" />Flights</h1>
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+        <h1 className="text-2xl font-bold shrink-0"><i className="fa-solid fa-plane text-brand-400 mr-2" />Flights</h1>
         {can(Permission.MANAGE_FLIGHTS) && (
           <button
             onClick={() => setShowForm((s) => !s)}
-            className="bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium px-3 py-1.5 rounded-lg"
+            className="bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium px-3 py-1.5 rounded-lg whitespace-nowrap"
           >
             <i className={`fa-solid ${showForm ? "fa-xmark" : "fa-plus"} mr-1.5`} />
             {showForm ? "Cancel" : "Schedule flight"}
           </button>
         )}
+      </div>
+
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <div className="relative max-w-xs w-full">
+          <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted text-xs" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search flight # or route..."
+            className="w-full border rounded-lg pl-8 pr-3 py-1.5 text-sm bg-accent text-ink placeholder:text-ink-muted"
+          />
+        </div>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as FlightStatus | "ALL")}
+          className="border rounded-lg px-2 py-1.5 text-sm bg-accent text-ink"
+        >
+          {STATUS_FILTERS.map((s) => (
+            <option key={s} value={s}>
+              {s === "ALL" ? "All statuses" : s.replace("_", " ")}
+            </option>
+          ))}
+        </select>
       </div>
 
       {showForm && (
@@ -151,7 +199,7 @@ export default function FlightsPage() {
             {flights.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-4 py-6 text-center text-ink-muted">
-                  No flights yet.
+                  {search || statusFilter !== "ALL" ? "No flights match your filters." : "No flights yet."}
                 </td>
               </tr>
             )}

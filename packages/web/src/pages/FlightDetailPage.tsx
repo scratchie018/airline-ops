@@ -15,6 +15,7 @@ import {
 import { apiFetch, downloadFile } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import StatusBadge from "../components/StatusBadge";
+import { useToast } from "../components/Toast";
 
 // Live status polling: a Flight Host marking BOARDING should show up for everyone
 // else already looking at this flight (gate staff, passengers, dashboard) without
@@ -34,6 +35,7 @@ type CrewEligibleUser = Pick<User, "id" | "discordUsername" | "discordAvatarUrl"
 export default function FlightDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user, currentMembership, can } = useAuth();
+  const toast = useToast();
   const [flight, setFlight] = useState<FlightDetail | null>(null);
   const [crewOptions, setCrewOptions] = useState<CrewEligibleUser[]>([]);
   const [crewUserId, setCrewUserId] = useState("");
@@ -41,6 +43,7 @@ export default function FlightDetailPage() {
   const [myDrinkOrders, setMyDrinkOrders] = useState<DrinkOrder[]>([]);
   const [allDrinkOrders, setAllDrinkOrders] = useState<DrinkOrder[]>([]);
   const [ordering, setOrdering] = useState<string | null>(null);
+  const [seatDrafts, setSeatDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -76,6 +79,7 @@ export default function FlightDetailPage() {
     setError(null);
     try {
       await apiFetch(`/flights/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
+      toast.success(`Flight marked as ${status.replace("_", " ")}`);
       load();
     } catch (err: any) {
       setError(err.message);
@@ -90,6 +94,7 @@ export default function FlightDetailPage() {
         method: "POST",
         body: JSON.stringify({ userId: crewUserId, position: crewPosition }),
       });
+      toast.success("Crew member added");
       setCrewUserId("");
       load();
     } catch (err: any) {
@@ -99,6 +104,7 @@ export default function FlightDetailPage() {
 
   async function removeCrew(assignmentId: string) {
     await apiFetch(`/flights/${id}/crew/${assignmentId}`, { method: "DELETE" });
+    toast.success("Crew member removed");
     load();
   }
 
@@ -106,6 +112,7 @@ export default function FlightDetailPage() {
     setError(null);
     try {
       await apiFetch(`/flights/${id}/bookings`, { method: "POST", body: JSON.stringify({}) });
+      toast.success("You're booked!");
       load();
     } catch (err: any) {
       setError(err.message);
@@ -114,7 +121,24 @@ export default function FlightDetailPage() {
 
   async function cancelBooking(bookingId: string) {
     await apiFetch(`/bookings/${bookingId}`, { method: "DELETE" });
+    toast.success("Booking cancelled");
     load();
+  }
+
+  async function assignSeat(bookingId: string, currentSeat: string | null) {
+    // Falls back to the booking's existing seat, matching what the input
+    // actually displays when nobody's typed a draft yet - otherwise clicking
+    // "Set" without editing anything would submit an empty value and silently
+    // clear a seat that visibly still showed a number.
+    const raw = seatDrafts[bookingId] ?? currentSeat ?? "";
+    const seatNumber = raw.trim() || null;
+    try {
+      await apiFetch(`/bookings/${bookingId}/seat`, { method: "PATCH", body: JSON.stringify({ seatNumber }) });
+      toast.success(seatNumber ? `Seat set to ${seatNumber}` : "Seat unassigned");
+      load();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
   }
 
   async function orderItem(item: MenuItemName) {
@@ -122,6 +146,7 @@ export default function FlightDetailPage() {
     setOrdering(item);
     try {
       await apiFetch(`/flights/${id}/drink-orders`, { method: "POST", body: JSON.stringify({ item }) });
+      toast.success(`Ordered ${item}`);
       load();
     } catch (err: any) {
       setError(err.message);
@@ -132,6 +157,7 @@ export default function FlightDetailPage() {
 
   async function fulfillDrink(orderId: string, status: DrinkOrderStatus) {
     await apiFetch(`/drink-orders/${orderId}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
+    toast.success("Order marked delivered");
     load();
   }
 
@@ -257,15 +283,29 @@ export default function FlightDetailPage() {
           )}
 
           {can(Permission.VIEW_ALL_BOOKINGS) ? (
-            <ul className="space-y-1">
+            <ul className="space-y-1.5">
               {flight.bookings
                 .filter((b) => b.status !== "CANCELLED")
                 .map((b) => (
-                  <li key={b.id} className="flex items-center justify-between text-sm">
-                    <span>{b.user?.discordUsername}</span>
-                    <button onClick={() => cancelBooking(b.id)} className="text-tuired-400 hover:underline text-xs">
-                      Cancel
-                    </button>
+                  <li key={b.id} className="flex items-center justify-between text-sm gap-2">
+                    <span className="truncate">{b.user?.discordUsername}</span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <input
+                        value={seatDrafts[b.id] ?? b.seatNumber ?? ""}
+                        onChange={(e) => setSeatDrafts((d) => ({ ...d, [b.id]: e.target.value }))}
+                        placeholder="Seat"
+                        className="w-16 border rounded-md px-1.5 py-0.5 text-xs bg-bg text-ink placeholder:text-ink-muted"
+                      />
+                      <button
+                        onClick={() => assignSeat(b.id, b.seatNumber)}
+                        className="text-brand-300 hover:text-brand-200 hover:underline text-xs"
+                      >
+                        Set
+                      </button>
+                      <button onClick={() => cancelBooking(b.id)} className="text-tuired-400 hover:underline text-xs">
+                        Cancel
+                      </button>
+                    </div>
                   </li>
                 ))}
               {flight.bookings.filter((b) => b.status !== "CANCELLED").length === 0 && (

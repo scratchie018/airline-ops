@@ -4,6 +4,16 @@ import { CrewPosition, FlightStatus, Permission, Role } from "shared";
 import { prisma } from "../db";
 import { requireAirlineMembership, requireAuth, requirePermission } from "../middleware/auth";
 import { recordAudit } from "../services/auditLog";
+import { postAirlineWebhook } from "../services/discordWebhook";
+
+/** Fire-and-forget announcement to the airline's configured Discord channel, if
+ * it has one - looked up fresh each time rather than threaded through every
+ * caller, since it's a cheap indexed lookup and this only runs on the
+ * relatively rare "flight changed" actions, not hot read paths. */
+async function announce(airlineId: string, content: string): Promise<void> {
+  const airline = await prisma.airline.findUnique({ where: { id: airlineId }, select: { discordWebhookUrl: true } });
+  if (airline?.discordWebhookUrl) postAirlineWebhook(airline.discordWebhookUrl, content);
+}
 
 const router = Router();
 
@@ -26,8 +36,21 @@ router.get("/", async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize) || 25));
   const status = req.query.status as FlightStatus | undefined;
+  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
 
-  const where = { airlineId: req.membership!.airlineId, ...(status ? { status } : {}) };
+  const where = {
+    airlineId: req.membership!.airlineId,
+    ...(status ? { status } : {}),
+    ...(q
+      ? {
+          OR: [
+            { flightNumber: { contains: q, mode: "insensitive" as const } },
+            { origin: { contains: q, mode: "insensitive" as const } },
+            { destination: { contains: q, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+  };
 
   const [items, total] = await Promise.all([
     prisma.flight.findMany({
@@ -82,6 +105,10 @@ router.post("/", requirePermission(Permission.MANAGE_FLIGHTS), async (req, res) 
       detail: `${flight.flightNumber} ${flight.origin}->${flight.destination}`,
     });
     res.status(201).json(flight);
+    announce(
+      req.membership!.airlineId,
+      `🛫 **${flight.flightNumber}** scheduled: ${flight.origin} → ${flight.destination}, departing <t:${Math.floor(new Date(flight.departureTime).getTime() / 1000)}:f>`
+    );
   } catch (err: any) {
     if (err.code === "P2002") return res.status(409).json({ error: "That flight number is already in use" });
     throw err;
@@ -134,6 +161,18 @@ router.patch("/:id/status", requirePermission(Permission.UPDATE_FLIGHT_STATUS), 
     detail: `${updated.flightNumber} -> ${updated.status}`,
   });
   res.json(updated);
+
+  const STATUS_EMOJI: Record<string, string> = {
+    BOARDING: "🧳",
+    DEPARTED: "🛫",
+    EN_ROUTE: "✈️",
+    LANDED: "🛬",
+  };
+  const emoji = STATUS_EMOJI[updated.status] ?? "ℹ️";
+  announce(
+    req.membership!.airlineId,
+    `${emoji} **${updated.flightNumber}** (${updated.origin} → ${updated.destination}) is now **${updated.status.replace("_", " ")}**`
+  );
 });
 
 router.delete("/:id", requirePermission(Permission.MANAGE_FLIGHTS), async (req, res) => {
@@ -155,6 +194,7 @@ router.delete("/:id", requirePermission(Permission.MANAGE_FLIGHTS), async (req, 
     detail: updated.flightNumber,
   });
   res.json(updated);
+  announce(req.membership!.airlineId, `❌ **${updated.flightNumber}** (${updated.origin} → ${updated.destination}) has been **cancelled**`);
 });
 
 // --- Crew assignments, nested under a flight ---

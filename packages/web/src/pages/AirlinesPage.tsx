@@ -3,10 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { Membership, Role } from "shared";
 import { apiFetch } from "../api";
 import { useAuth } from "../auth/AuthContext";
+import { useToast } from "../components/Toast";
 
 function EditAirlineForm({ membership, onDone }: { membership: Membership; onDone: () => void }) {
+  const toast = useToast();
   const [name, setName] = useState(membership.airline.name);
   const [discordGuildId, setDiscordGuildId] = useState(membership.airline.discordGuildId);
+  const [discordWebhookUrl, setDiscordWebhookUrl] = useState(membership.airline.discordWebhookUrl ?? "");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -17,8 +20,9 @@ function EditAirlineForm({ membership, onDone }: { membership: Membership; onDon
     try {
       await apiFetch(`/airlines/${membership.airlineId}`, {
         method: "PATCH",
-        body: JSON.stringify({ name, discordGuildId }),
+        body: JSON.stringify({ name, discordGuildId, discordWebhookUrl }),
       });
+      toast.success("Airline updated");
       onDone();
     } catch (err: any) {
       setError(err.message);
@@ -47,6 +51,19 @@ function EditAirlineForm({ membership, onDone }: { membership: Membership; onDon
           className="w-full border rounded-lg px-3 py-1.5 text-sm bg-bg text-ink font-mono"
         />
       </div>
+      <div>
+        <label className="block text-xs text-ink-muted mb-1">Discord announcements webhook (optional)</label>
+        <input
+          value={discordWebhookUrl}
+          onChange={(e) => setDiscordWebhookUrl(e.target.value)}
+          placeholder="https://discord.com/api/webhooks/..."
+          className="w-full border rounded-lg px-3 py-1.5 text-sm bg-bg text-ink font-mono placeholder:text-ink-muted"
+        />
+        <p className="text-xs text-ink-muted mt-1">
+          Posts flight scheduling, status, and cancellation updates to a channel automatically. Channel Settings →
+          Integrations → Webhooks → New Webhook → Copy URL. Leave blank to turn announcements off.
+        </p>
+      </div>
       {error && <p className="text-sm text-tuired-400">{error}</p>}
       <div className="flex gap-2">
         <button
@@ -70,6 +87,7 @@ function EditAirlineForm({ membership, onDone }: { membership: Membership; onDon
 
 export default function AirlinesPage() {
   const { user, memberships, selectAirline, refresh, logout } = useAuth();
+  const toast = useToast();
   const navigate = useNavigate();
 
   const [name, setName] = useState("");
@@ -92,6 +110,7 @@ export default function AirlinesPage() {
         method: "POST",
         body: JSON.stringify({ name, discordGuildId }),
       });
+      toast.success(`${name} created - you're the Owner`);
       await refresh();
       pick(airline.id);
     } catch (err: any) {

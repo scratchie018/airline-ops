@@ -3,7 +3,9 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { AuthProvider } from "./auth/AuthContext";
+import { ConfirmDialogProvider } from "./components/ConfirmDialog";
 import TitleBar from "./components/TitleBar";
+import { ToastProvider } from "./components/Toast";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -14,9 +16,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <TitleBar />
       <div className="flex-1 min-h-0 overflow-y-auto">
         <BrowserRouter>
-          <AuthProvider>
-            <App />
-          </AuthProvider>
+          <ToastProvider>
+            <ConfirmDialogProvider>
+              <AuthProvider>
+                <App />
+              </AuthProvider>
+            </ConfirmDialogProvider>
+          </ToastProvider>
         </BrowserRouter>
       </div>
     </div>

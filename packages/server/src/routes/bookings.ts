@@ -3,6 +3,7 @@ import { z } from "zod";
 import { BookingStatus, Permission, hasPermission } from "shared";
 import { prisma } from "../db";
 import { requireAirlineMembership, requireAuth, requirePermission } from "../middleware/auth";
+import { recordAudit } from "../services/auditLog";
 
 const router = Router();
 
@@ -69,6 +70,36 @@ router.get("/bookings/me", async (req, res) => {
     orderBy: { createdAt: "desc" },
   });
   res.json(bookings);
+});
+
+const seatSchema = z.object({ seatNumber: z.string().max(10).nullable() });
+
+// Staff assigning/changing a passenger's seat (as opposed to the passenger
+// picking their own at booking time) - same permission as viewing the full
+// manifest, since it's the same "staff manage the passenger list" capability.
+router.patch("/bookings/:id/seat", requirePermission(Permission.VIEW_ALL_BOOKINGS), async (req, res) => {
+  const parsed = seatSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const booking = await prisma.booking.findFirst({
+    where: { id: req.params.id, flight: { airlineId: req.membership!.airlineId } },
+    include: { user: true },
+  });
+  if (!booking) return res.status(404).json({ error: "Booking not found" });
+
+  const updated = await prisma.booking.update({
+    where: { id: booking.id },
+    data: { seatNumber: parsed.data.seatNumber },
+  });
+  recordAudit({
+    airlineId: req.membership!.airlineId,
+    actorId: req.user!.id,
+    action: "booking.seat_assign",
+    targetType: "Booking",
+    targetId: booking.id,
+    detail: `${booking.user.discordUsername}: ${booking.seatNumber ?? "unassigned"} -> ${updated.seatNumber ?? "unassigned"}`,
+  });
+  res.json(updated);
 });
 
 router.delete("/bookings/:id", async (req, res) => {

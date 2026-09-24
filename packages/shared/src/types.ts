@@ -57,6 +57,7 @@ export interface Airline {
   name: string;
   slug: string;
   discordGuildId: string;
+  discordWebhookUrl: string | null;
   createdAt: string;
 }
 
