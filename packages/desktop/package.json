@@ -8,8 +8,7 @@
   "scripts": {
     "dev": "tsc -p tsconfig.json && electron .",
     "build": "tsc -p tsconfig.json",
-    "predist": "npm run build && cd ../web && VITE_BASE=./ npm run build && cd ../desktop && rm -rf web-dist && cp -r ../web/dist web-dist",
-    "dist": "npm run predist && electron-builder"
+    "dist": "npm run build && electron-builder"
   },
   "devDependencies": {
     "app-builder-bin": "^5.0.0-alpha.10",
@@ -25,7 +24,7 @@
     "icon": "build/icon.png",
     "files": [
       "dist/**/*",
-      "web-dist/**/*"
+      "build/icon.png"
     ],
     "directories": {
       "output": "release"

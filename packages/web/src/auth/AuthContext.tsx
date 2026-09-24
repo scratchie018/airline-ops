@@ -1,13 +1,6 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { Membership, Permission, User, hasPermission } from "shared";
-import {
-  apiFetch,
-  clearCurrentAirlineId,
-  clearWebToken,
-  getCurrentAirlineId,
-  isElectron,
-  setCurrentAirlineId,
-} from "../api";
+import { apiFetch, clearCurrentAirlineId, clearWebToken, getCurrentAirlineId, setCurrentAirlineId } from "../api";
 
 interface AuthState {
   user: User | null;
@@ -23,8 +16,6 @@ interface AuthState {
   can: (permission: Permission) => boolean;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
-  loginError: string | null;
-  clearLoginError: () => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -34,7 +25,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [currentAirlineId, setCurrentAirlineIdState] = useState<string | null>(getCurrentAirlineId());
   const [loading, setLoading] = useState(true);
-  const [loginError, setLoginError] = useState<string | null>(null);
 
   function selectAirline(airlineId: string) {
     setCurrentAirlineId(airlineId);
@@ -69,22 +59,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refresh();
-
-    // Desktop: the Electron main process fires this once polling for the login
-    // token succeeds - refetch /auth/me now that apiFetch will actually have a
-    // token to send.
-    if (isElectron) {
-      window.electronAPI!.onToken(() => refresh());
-      window.electronAPI!.onLoginTimeout(() =>
-        setLoginError("Sign-in timed out - the browser window may have been closed before completing login. Try again.")
-      );
-    }
   }, []);
 
   async function logout() {
     await apiFetch("/auth/logout", { method: "POST" });
-    if (isElectron) await window.electronAPI!.clearToken();
-    else clearWebToken();
+    clearWebToken();
     clearCurrentAirlineId();
     setCurrentAirlineIdState(null);
     setUser(null);
@@ -107,8 +86,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         can: (permission) => (currentMembership ? hasPermission(currentMembership.role, permission) : false),
         refresh,
         logout,
-        loginError,
-        clearLoginError: () => setLoginError(null),
       }}
     >
       {children}

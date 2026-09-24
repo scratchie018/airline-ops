@@ -242,16 +242,3 @@ model DrinkOrder {
   @@index([flightId, status])
   @@index([userId])
 }
-
-/// The desktop app's OAuth handoff, keyed by the random id it generates before
-/// opening the system browser (see desktop/src/main.ts and
-/// services/desktopAuthSessions.ts). Has to be a real table, not an in-memory
-/// Map on the API process - a free-tier Render service can restart (a deploy,
-/// or just going back to sleep after 15 idle minutes) at any point between the
-/// browser showing "Signed in" and the desktop app's next poll, which would
-/// silently wipe an in-memory store and strand that login forever.
-model DesktopAuthSession {
-  id        String   @id
-  token     String
-  expiresAt DateTime
-}

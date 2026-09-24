@@ -20,9 +20,11 @@ export function clearCurrentAirlineId() {
   localStorage.removeItem(CURRENT_AIRLINE_KEY);
 }
 
-/** Web build's equivalent of the desktop app's encrypted token file - just
- * localStorage, scoped to this origin. Not as hardened as Electron's safeStorage,
- * but this is the standard approach for a browser SPA talking to a separate API
+/** localStorage, scoped to this origin - the same mechanism whether this page
+ * is open in a real browser or inside the desktop app's Electron window (it's
+ * just this website loaded there too, with its own persistent profile, see
+ * packages/desktop/src/main.ts). Not as hardened as a native OS keychain,
+ * but the standard approach for a browser SPA talking to a separate API
  * origin (see routes/auth.ts for why a cookie doesn't work here). */
 export function setWebToken(token: string) {
   localStorage.setItem(WEB_TOKEN_KEY, token);
@@ -34,11 +36,8 @@ function getWebToken(): string | null {
   return localStorage.getItem(WEB_TOKEN_KEY);
 }
 
-/** Both web and desktop authenticate the same way now: a Bearer token, stored
- * locally (localStorage for web, an encrypted file for Electron - see
- * packages/desktop's tokenStore.ts) and attached to every request. */
-async function authHeader(): Promise<Record<string, string>> {
-  const token = isElectron ? await window.electronAPI!.getToken() : getWebToken();
+function authHeader(): Record<string, string> {
+  const token = getWebToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -56,7 +55,7 @@ function airlineHeader(): Record<string, string> {
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(await authHeader()),
+    ...authHeader(),
     ...airlineHeader(),
     ...((init.headers as Record<string, string>) || {}),
   };
@@ -85,7 +84,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
  * token apiFetch uses. */
 export async function downloadFile(path: string, filename: string): Promise<void> {
   const res = await fetch(`${API_URL}${path}`, {
-    headers: { ...(await authHeader()), ...airlineHeader() },
+    headers: { ...authHeader(), ...airlineHeader() },
   });
   if (!res.ok) throw new ApiError(res.status, res.statusText);
 
@@ -99,9 +98,5 @@ export async function downloadFile(path: string, filename: string): Promise<void
 }
 
 export function startDiscordLogin() {
-  if (isElectron) {
-    window.electronAPI!.startDiscordLogin();
-  } else {
-    window.location.href = `${API_URL}/auth/discord`;
-  }
+  window.location.href = `${API_URL}/auth/discord`;
 }

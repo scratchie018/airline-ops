@@ -1,13 +1,21 @@
-import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
-import { randomUUID } from "node:crypto";
+import { app, BrowserWindow, Menu, ipcMain } from "electron";
 import { join } from "node:path";
-import { clearToken, loadToken, saveToken } from "./tokenStore";
 
-const API_URL = process.env.AIRLINE_OPS_API_URL || "https://airline-ops-api.onrender.com";
+// The desktop app is just the real website loaded in a Chromium shell now -
+// no bundled copy of the site, no separate OAuth flow. That used to be a
+// custom loopback-server-then-polling dance to hand a login token back to
+// this process, which kept breaking in new ways (Windows Firewall blocking
+// the loopback listener, then a Render restart wiping the polling handoff
+// mid-login) because it was a fundamentally different, custom-built path
+// from the one the website itself already uses successfully every day.
+// Pointing this window at the live site means login is the exact same
+// redirect-to-Discord-and-back flow a browser tab gets, with the token
+// landing in this window's own persistent localStorage - nothing left to
+// break independently of the website.
+const WEB_URL = process.env.AIRLINE_OPS_WEB_URL || "https://airline-ops-web.onrender.com";
 const isDev = !app.isPackaged;
 
 let mainWindow: BrowserWindow | null = null;
-let pollTimer: NodeJS.Timeout | null = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -20,11 +28,7 @@ function createWindow() {
     // be wired up manually below instead of coming for free from the OS chrome.
     frame: false,
     backgroundColor: "#0f1021",
-    // Reuses the icon Vite already copied into web-dist/ (from web/public/icon.png)
-    // rather than a separate copy step - sets the runtime taskbar/title-bar icon on
-    // Linux/Windows (the packaging icon in package.json's build.icon is separate -
-    // that one's for the installer/desktop-file, this is for the live window).
-    icon: join(__dirname, "../web-dist/icon.png"),
+    icon: join(__dirname, "../build/icon.png"),
     webPreferences: {
       preload: join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -35,67 +39,8 @@ function createWindow() {
   mainWindow.on("maximize", () => mainWindow?.webContents.send("window:state-changed", true));
   mainWindow.on("unmaximize", () => mainWindow?.webContents.send("window:state-changed", false));
 
-  if (isDev) {
-    mainWindow.loadURL("http://localhost:5173");
-  } else {
-    // web-dist is a copy of packages/web/dist made by the "predist" build step
-    // (see package.json) - electron-builder's `files` glob can't reach outside
-    // this package's own directory with `../`, so the website has to be copied
-    // in locally before packaging rather than referenced from its real location.
-    mainWindow.loadFile(join(__dirname, "../web-dist/index.html"));
-  }
+  mainWindow.loadURL(isDev ? "http://localhost:5173" : WEB_URL);
 }
-
-const POLL_INTERVAL_MS = 1500;
-const POLL_TIMEOUT_MS = 5 * 60 * 1000;
-
-/** Opens the system browser for Discord login, then polls the API for the
- * resulting token instead of running a local server to catch a redirect.
- *
- * This used to be a localhost HTTP server (the standard OAuth loopback pattern),
- * but that means the desktop app has to successfully *accept an inbound
- * connection* on the user's machine - something Windows Firewall, antivirus, or
- * a port already in use by something else can silently block, with no useful
- * error surfaced anywhere. Polling only ever makes outbound HTTPS requests, the
- * same kind every other API call in this app already makes successfully, so
- * there's no separate networking path that can be blocked. */
-function startLogin() {
-  const sessionId = randomUUID();
-  shell.openExternal(`${API_URL}/auth/discord?client=desktop&session=${sessionId}`);
-
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(async () => {
-    if (Date.now() > deadline) {
-      if (pollTimer) clearInterval(pollTimer);
-      pollTimer = null;
-      mainWindow?.webContents.send("auth:login-timed-out");
-      return;
-    }
-
-    try {
-      const res = await fetch(`${API_URL}/auth/session/${sessionId}`);
-      if (res.status !== 200) return;
-      const data = (await res.json()) as { ready: boolean; token?: string };
-      if (data.ready && data.token) {
-        if (pollTimer) clearInterval(pollTimer);
-        pollTimer = null;
-        saveToken(data.token);
-        mainWindow?.webContents.send("auth:token-received", data.token);
-      }
-    } catch {
-      // Transient network hiccup - just try again on the next tick.
-    }
-  }, POLL_INTERVAL_MS);
-}
-
-ipcMain.handle("auth:start-login", () => {
-  startLogin();
-});
-
-ipcMain.handle("auth:get-token", () => loadToken());
-
-ipcMain.handle("auth:clear-token", () => clearToken());
 
 // Window controls for the custom titlebar - with frame:false there's no native
 // minimize/maximize/close, so the renderer's buttons call these instead.

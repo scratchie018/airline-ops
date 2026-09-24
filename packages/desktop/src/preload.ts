@@ -1,16 +1,12 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+// Auth-related IPC (startDiscordLogin/getToken/clearToken/onToken) used to
+// live here - gone now that the app just loads the real website directly and
+// logs in exactly like a browser tab (see main.ts). window.electronAPI still
+// exists purely so the web app's TitleBar component can detect it's running
+// inside Electron and draw its own window controls.
 contextBridge.exposeInMainWorld("electronAPI", {
   isElectron: true,
-  startDiscordLogin: () => ipcRenderer.invoke("auth:start-login"),
-  getToken: () => ipcRenderer.invoke("auth:get-token"),
-  clearToken: () => ipcRenderer.invoke("auth:clear-token"),
-  onToken: (callback: (token: string) => void) => {
-    ipcRenderer.on("auth:token-received", (_event, token: string) => callback(token));
-  },
-  onLoginTimeout: (callback: () => void) => {
-    ipcRenderer.on("auth:login-timed-out", () => callback());
-  },
   window: {
     minimize: () => ipcRenderer.invoke("window:minimize"),
     maximizeToggle: () => ipcRenderer.invoke("window:maximize-toggle"),

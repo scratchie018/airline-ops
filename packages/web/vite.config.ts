@@ -8,14 +8,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   plugins: [react()],
   server: { port: 5173 },
-  // Absolute by default - required for the real website, which gets loaded at
-  // arbitrary nested paths (e.g. /auth/callback after the OAuth redirect), where
-  // a relative base resolves assets against the WRONG directory (a page at
-  // /auth/callback requesting "./assets/x.js" fetches /auth/assets/x.js, a 404 -
-  // the script never loads, the page is just blank). Electron's build overrides
-  // this to "./" instead (see desktop's predist script), since it loads
-  // index.html via file:// where relative paths are what's actually needed.
-  base: process.env.VITE_BASE || "/",
+  // Absolute - required since this gets loaded at arbitrary nested paths (e.g.
+  // /auth/callback after the OAuth redirect), where a relative base resolves
+  // assets against the WRONG directory (a page at /auth/callback requesting
+  // "./assets/x.js" fetches /auth/assets/x.js, a 404 - the script never loads,
+  // the page is just blank). The desktop app loads this exact same build over
+  // https now too (see packages/desktop/src/main.ts), not a local file:// copy,
+  // so there's no second base path to account for anymore.
+  base: "/",
   resolve: {
     alias: {
       // Point straight at shared's TypeScript source instead of its compiled CJS
