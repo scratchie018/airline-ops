@@ -53,8 +53,29 @@ async function fixUpDefaultAirlineGuildId() {
   console.log(`Backfilled default airline ${placeholder.id}'s Discord guild ID from env.`);
 }
 
-fixUpDefaultAirlineGuildId()
-  .catch((err) => console.error("Default airline guild ID backfill failed:", err))
+/** One-time data fix, same pattern as fixUpDefaultAirlineGuildId above - no
+ * production DB credentials exist outside Render's own dashboard, so a fix
+ * like this ships as an idempotent boot step instead. Gives quebecnotfound a
+ * locked Owner Membership on every Airline that exists right now. Meant to
+ * be removed again once confirmed applied, not a permanent rule for future
+ * airlines. */
+async function grantQuebecnotfoundOwnerEverywhere() {
+  const user = await prisma.user.findFirst({ where: { discordUsername: "quebecnotfound" } });
+  if (!user) return;
+
+  const airlines = await prisma.airline.findMany({ select: { id: true } });
+  for (const airline of airlines) {
+    await prisma.membership.upsert({
+      where: { userId_airlineId: { userId: user.id, airlineId: airline.id } },
+      update: { role: "OWNER", roleLocked: true },
+      create: { userId: user.id, airlineId: airline.id, role: "OWNER", roleLocked: true },
+    });
+  }
+  console.log(`Granted quebecnotfound OWNER on ${airlines.length} airline(s).`);
+}
+
+Promise.all([fixUpDefaultAirlineGuildId(), grantQuebecnotfoundOwnerEverywhere()])
+  .catch((err) => console.error("Boot-time data fixups failed:", err))
   .finally(() => {
     app.listen(env.port, () => {
       console.log(`Airline Ops API listening on :${env.port}`);
