@@ -4,9 +4,8 @@ import { Role } from "shared";
 import { prisma } from "../db";
 import { env } from "../env";
 import { requireAuth } from "../middleware/auth";
-import { isBotInGuild } from "../services/discordAuth";
+import { fetchGuildInfo } from "../services/discordAuth";
 import { isValidDiscordWebhookUrl } from "../services/discordWebhook";
-import { syncAllMembersForAirline } from "../services/membershipSync";
 
 const DISCORD_API = "https://discord.com/api/v10";
 
@@ -42,21 +41,34 @@ router.get("/mine", requireAuth, async (req, res) => {
   res.json(memberships);
 });
 
+/** Live-checks a Discord server ID before anyone commits to creating an
+ * airline against it - the create form calls this as the Owner types, so the
+ * "Create airline" button only ever becomes clickable once the bot is
+ * confirmed present (POST / re-checks this too regardless, this is purely for
+ * not letting the attempt happen in the first place). Also doubles as the
+ * source for the name/icon the create form previews and prefills, so nobody
+ * has to type the airline's name in by hand. */
+router.get("/check-guild/:id", requireAuth, async (req, res) => {
+  const info = await fetchGuildInfo(req.params.id);
+  if (!info) return res.json({ present: false });
+  res.json({ present: true, name: info.name, iconUrl: info.iconUrl });
+});
+
 const createSchema = z.object({
-  name: z.string().min(2).max(80),
   discordGuildId: z.string().min(1).max(32),
 });
 
 // Self-serve airline creation - anyone signed in with Discord can register a
-// new airline against a Discord server they belong to (checked below with the
-// bot token, the same way role sync checks membership) and becomes its Owner.
+// new airline against a Discord server they belong to, becoming its Owner.
+// The bot must already be in that server (checked below) - name and icon come
+// straight from Discord, never typed in by hand.
 router.post("/", requireAuth, async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const { name, discordGuildId } = parsed.data;
+  const { discordGuildId } = parsed.data;
 
-  const botIn = await isBotInGuild(discordGuildId);
-  if (!botIn) {
+  const guildInfo = await fetchGuildInfo(discordGuildId);
+  if (!guildInfo) {
     return res.status(400).json({
       error: "The Airline Ops bot isn't in that Discord server yet - invite it first, then try again.",
     });
@@ -75,11 +87,12 @@ router.post("/", requireAuth, async (req, res) => {
     return res.status(409).json({ error: "That Discord server is already registered to an airline here." });
   }
 
-  const slug = await uniqueSlug(name);
+  const slug = await uniqueSlug(guildInfo.name);
 
   const airline = await prisma.airline.create({
     data: {
-      name,
+      name: guildInfo.name,
+      iconUrl: guildInfo.iconUrl,
       slug,
       discordGuildId,
       createdById: req.user!.id,
@@ -88,9 +101,6 @@ router.post("/", requireAuth, async (req, res) => {
   });
 
   res.status(201).json(airline);
-  // Pick up everyone else already in the server right away, not just the
-  // creator - same "double check" reconciliation the sync-roles button runs.
-  syncAllMembersForAirline(airline.id).catch((err) => console.error("Post-create role sync failed:", err));
 });
 
 const updateSchema = z.object({
@@ -120,17 +130,23 @@ router.patch("/:id", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "Only that airline's Owner can edit it" });
   }
 
+  let iconUrl: string | null | undefined;
   if (parsed.data.discordGuildId) {
-    const botIn = await isBotInGuild(parsed.data.discordGuildId);
-    if (!botIn) {
+    const guildInfo = await fetchGuildInfo(parsed.data.discordGuildId);
+    if (!guildInfo) {
       return res.status(400).json({
         error: "The Airline Ops bot isn't in that Discord server yet - invite it first, then try again.",
       });
     }
+    // The icon follows the new server automatically; the name doesn't (an
+    // Owner may have deliberately renamed the airline away from the server's
+    // own name, and switching guild IDs shouldn't silently undo that).
+    iconUrl = guildInfo.iconUrl;
   }
 
   const data = {
     ...parsed.data,
+    ...(iconUrl !== undefined ? { iconUrl } : {}),
     // "" means "clear it" - Prisma needs an explicit null, not an empty string.
     discordWebhookUrl: parsed.data.discordWebhookUrl === "" ? null : parsed.data.discordWebhookUrl,
   };
@@ -138,9 +154,6 @@ router.patch("/:id", requireAuth, async (req, res) => {
   try {
     const airline = await prisma.airline.update({ where: { id: req.params.id }, data });
     res.json(airline);
-    if (parsed.data.discordGuildId) {
-      syncAllMembersForAirline(airline.id).catch((err) => console.error("Post-edit role sync failed:", err));
-    }
   } catch (err: any) {
     if (err.code === "P2002") return res.status(409).json({ error: "That Discord server is already registered to another airline" });
     throw err;

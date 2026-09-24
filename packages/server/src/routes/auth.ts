@@ -9,7 +9,7 @@ import {
   fetchDiscordUser,
   fetchUserGuildIds,
 } from "../services/discordAuth";
-import { syncMembershipsFromDiscordGuilds } from "../services/membershipSync";
+import { ensurePassengerMemberships } from "../services/membershipBootstrap";
 import { requireAuth } from "../middleware/auth";
 import { signSession } from "../services/jwt";
 import { cleanupExpiredDesktopSessions, consumeDesktopSession, createDesktopSession } from "../services/desktopAuthSessions";
@@ -79,18 +79,17 @@ router.get("/discord/callback", async (req, res) => {
       },
     });
 
-    // Auto-join every airline whose Discord server this account is actually a
-    // member of, with a Role freshly resolved from that airline's own role
-    // mapping - see membershipSync.ts for why an existing OWNER membership is
-    // left alone here.
+    // No automatic role assignment here anymore - see membershipBootstrap.ts.
+    // This only makes sure a genuine member of an airline's Discord server has
+    // a Membership row to work with (as Passenger) so staff can find and
+    // promote them in Admin > Users.
     try {
       const guildIds = await fetchUserGuildIds(accessToken);
-      await syncMembershipsFromDiscordGuilds(user.id, discordUser.id, guildIds);
-    } catch (syncErr) {
-      // Membership sync failing (e.g. a transient Discord API hiccup) shouldn't
-      // block login entirely - worst case someone's role list is momentarily
-      // stale, not that they can't sign in at all.
-      console.error("Membership sync failed:", syncErr);
+      await ensurePassengerMemberships(user.id, guildIds);
+    } catch (bootstrapErr) {
+      // Shouldn't block login entirely over a transient Discord API hiccup -
+      // worst case they don't show up in the roster until their next login.
+      console.error("Membership bootstrap failed:", bootstrapErr);
     }
 
     const sessionToken = signSession({ userId: user.id });

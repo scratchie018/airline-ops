@@ -1,8 +1,4 @@
-import { Role } from "shared";
 import { env } from "../env";
-import { prisma } from "../db";
-
-const ROLE_PRECEDENCE: Role[] = [Role.OWNER, Role.MANAGER, Role.FLIGHT_HOST, Role.PILOT];
 
 const DISCORD_API = "https://discord.com/api/v10";
 
@@ -18,25 +14,35 @@ interface DiscordUser {
   discriminator: string;
 }
 
+interface DiscordGuild {
+  id: string;
+  name: string;
+  icon: string | null;
+}
+
 interface DiscordGuildMember {
-  user: DiscordUser & { bot?: boolean };
   roles: string[];
 }
 
-interface DiscordPartialGuild {
+interface DiscordRole {
   id: string;
+  name: string;
+  color: number;
+  position: number;
+  permissions: string;
+  managed: boolean;
 }
+
+// Discord permission bitflags relevant here (out of the full set) - see
+// https://discord.com/developers/docs/topics/permissions#permissions-bitwise-permission-flags
+const PERMISSION_ADMINISTRATOR = 1n << 3n;
+const PERMISSION_MANAGE_ROLES = 1n << 28n;
 
 export function buildAuthorizeUrl(state: string): string {
   const params = new URLSearchParams({
     client_id: env.discordClientId,
     redirect_uri: env.discordRedirectUri,
     response_type: "code",
-    // identify: who they are. guilds: which Discord servers they're in - used
-    // right after login to auto-discover which airlines (each backed by one
-    // Discord server) this account should get a Membership in, without the
-    // user having to manually type in a guild ID anywhere. Neither scope hands
-    // us anything sensitive beyond "member of these public-ish server IDs."
     scope: "identify guilds",
     state,
     // No prompt=none here on purpose - that tells Discord to skip the consent
@@ -96,21 +102,32 @@ export function discordAvatarUrl(user: DiscordUser): string {
   return `https://cdn.discordapp.com/embed/avatars/${defaultIndex}.png`;
 }
 
-/** Whether the shared bot has actually been invited into this guild - checked
- * when someone tries to register a new Airline against it, so a guild ID typo
- * (or a server the bot was never added to) fails fast with a clear message
- * instead of silently creating an airline whose role sync can never work. */
-export async function isBotInGuild(guildId: string): Promise<boolean> {
+function guildIconUrl(guild: DiscordGuild): string | null {
+  if (!guild.icon) return null;
+  const ext = guild.icon.startsWith("a_") ? "gif" : "png";
+  return `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.${ext}?size=256`;
+}
+
+/** Confirms the shared bot has actually been invited into this guild and grabs
+ * its name/icon straight from Discord - checked (and used to fill in the
+ * Airline record) when someone registers a new Airline, or edits an existing
+ * one's guild ID, so nobody has to type a server name in by hand and a typo'd
+ * guild ID (or one the bot was never added to) fails fast with a clear
+ * message. Returns null if the bot isn't in that guild. */
+export async function fetchGuildInfo(guildId: string): Promise<{ name: string; iconUrl: string | null } | null> {
   const res = await fetch(`${DISCORD_API}/guilds/${guildId}`, {
     headers: { Authorization: `Bot ${env.discordBotToken}` },
   });
-  return res.ok;
+  if (!res.ok) return null;
+  const guild = (await res.json()) as DiscordGuild;
+  return { name: guild.name, iconUrl: guildIconUrl(guild) };
 }
 
 /** The Discord guild IDs this user is actually a member of, straight from their
- * own OAuth token (the `guilds` scope) - used right after login to work out
- * which of the platform's airlines they should get a Membership in, without
- * checking every airline's guild via the bot for every login. */
+ * own OAuth token (the `guilds` scope) - used right after login purely to know
+ * which of the platform's airlines this account is a member of (so it can get
+ * a baseline Passenger Membership there - see membershipBootstrap.ts), not to
+ * decide what Role they should have. */
 export async function fetchUserGuildIds(accessToken: string): Promise<string[]> {
   const res = await fetch(`${DISCORD_API}/users/@me/guilds`, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -118,102 +135,64 @@ export async function fetchUserGuildIds(accessToken: string): Promise<string[]> 
   if (!res.ok) {
     throw new Error(`Failed to fetch user's guilds: ${res.status} ${await res.text()}`);
   }
-  const guilds = (await res.json()) as DiscordPartialGuild[];
+  const guilds = (await res.json()) as { id: string }[];
   return guilds.map((g) => g.id);
 }
 
-interface RoleMappingRow {
-  discordRoleId: string;
-  appRole: string;
-}
-
-/** Pure role resolution given a Discord member's role IDs and an airline's
- * RoleMapping rows - factored out so the guild-wide reconciliation
- * (syncAllMembersForAirline) can reuse it against role data it already has
- * from a member-list call, instead of firing one extra HTTP request per
- * member the way the single-user login path needs to. Highest-privilege
- * match wins when a user holds more than one mapped Discord role; PASSENGER
- * is the default for anyone who holds none of the 4 staff roles - they can
- * still log in and book flights, just without any staff permissions. */
-export function resolveRoleFromRoleIds(discordRoleIds: string[], mappings: RoleMappingRow[]): Role {
-  const roleIds = new Set(discordRoleIds);
-  const byRole = new Map(mappings.map((m) => [m.discordRoleId, m.appRole as Role]));
-  for (const appRole of ROLE_PRECEDENCE) {
-    const match = mappings.find((m) => m.appRole === appRole && roleIds.has(m.discordRoleId));
-    if (match) return byRole.get(match.discordRoleId)!;
-  }
-  return Role.PASSENGER;
-}
-
-/** Looks up one user's roles in one airline's guild using the bot token (not the
- * user's own OAuth token - Discord doesn't reliably expose a normal user's guild
- * roles via the identify/guilds scopes, but a bot that's a member of the server
- * can always read this for any member) and maps them to one of the 5 app Roles. */
-export async function resolveAppRoleForGuild(
-  discordUserId: string,
-  guildId: string,
-  airlineId: string
-): Promise<Role> {
-  const res = await fetch(`${DISCORD_API}/guilds/${guildId}/members/${discordUserId}`, {
+/** Every role in a guild, as configured in Discord - used by the Admin > Roles
+ * panel so an Owner/Manager picks from the server's actual roles instead of
+ * typing a Discord role ID in by hand. Excludes the @everyone role (id equals
+ * the guild id) and Discord-managed roles (bot/integration roles, which can't
+ * be meaningfully assigned to a person by hand anyway). */
+export async function fetchGuildRoles(guildId: string): Promise<DiscordRole[]> {
+  const res = await fetch(`${DISCORD_API}/guilds/${guildId}/roles`, {
     headers: { Authorization: `Bot ${env.discordBotToken}` },
   });
-
-  if (res.status === 404) {
-    // Authenticated with Discord but not (or no longer) a member of this
-    // airline's server.
-    return Role.PASSENGER;
-  }
   if (!res.ok) {
-    throw new Error(`Failed to fetch guild member: ${res.status} ${await res.text()}`);
+    throw new Error(`Failed to fetch guild roles: ${res.status} ${await res.text()}`);
   }
-
-  const member = (await res.json()) as DiscordGuildMember;
-  const mappings = await prisma.roleMapping.findMany({ where: { airlineId } });
-  return resolveRoleFromRoleIds(member.roles, mappings);
+  const roles = (await res.json()) as DiscordRole[];
+  return roles.filter((r) => r.id !== guildId && !r.managed).sort((a, b) => b.position - a.position);
 }
 
-/** Thrown by fetchGuildMembers specifically when Discord rejects the call for
- * lacking the privileged intent, so callers can show something actionable
- * instead of a generic failure. */
-export class MissingServerMembersIntentError extends Error {
-  constructor() {
-    super("Server Members Intent isn't enabled for the bot");
-  }
-}
-
-/** Every human (non-bot) member of a guild, with their current Discord role IDs -
- * paginated via the bot token, capped at 10,000 members (10 pages) as a sane
- * upper bound for how large a single virtual airline's server would ever get.
- *
- * Unlike the single-member lookup above, LISTING a guild's members needs
- * Discord's privileged "Server Members Intent" toggled on for the bot
- * application (Discord Developer Portal -> Bot -> Privileged Gateway Intents),
- * not just the bot being in the server - Discord returns 403/50001 ("Missing
- * Access") if it isn't, which this detects and rethrows as
- * MissingServerMembersIntentError. */
-export async function fetchGuildMembers(guildId: string): Promise<DiscordGuildMember[]> {
-  const members: DiscordGuildMember[] = [];
-  let after = "0";
-
-  for (let page = 0; page < 10; page++) {
-    const res = await fetch(`${DISCORD_API}/guilds/${guildId}/members?limit=1000&after=${after}`, {
+/** Whether the bot can manage roles in this guild (has the MANAGE_ROLES or
+ * ADMINISTRATOR permission via any role it holds, including @everyone) - the
+ * gate for the "+ New role" button, which has the bot create a real Discord
+ * role. Computed from the bot's own guild-member roles rather than assumed,
+ * since it can change any time an Owner edits the bot's role in Discord. */
+export async function botCanManageRoles(guildId: string): Promise<boolean> {
+  const [memberRes, roles] = await Promise.all([
+    fetch(`${DISCORD_API}/guilds/${guildId}/members/${env.discordClientId}`, {
       headers: { Authorization: `Bot ${env.discordBotToken}` },
-    });
-    if (res.status === 403) {
-      const body = await res.text();
-      if (body.includes('"code": 50001') || body.includes('"code":50001')) {
-        throw new MissingServerMembersIntentError();
-      }
-      throw new Error(`Failed to fetch guild members: 403 ${body}`);
-    }
-    if (!res.ok) {
-      throw new Error(`Failed to fetch guild members: ${res.status} ${await res.text()}`);
-    }
-    const batch = (await res.json()) as DiscordGuildMember[];
-    members.push(...batch.filter((m) => !m.user.bot));
-    if (batch.length < 1000) break;
-    after = batch[batch.length - 1].user.id;
-  }
+    }),
+    fetch(`${DISCORD_API}/guilds/${guildId}/roles`, { headers: { Authorization: `Bot ${env.discordBotToken}` } }).then(
+      (r) => (r.ok ? (r.json() as Promise<DiscordRole[]>) : [])
+    ),
+  ]);
+  if (!memberRes.ok) return false;
+  const member = (await memberRes.json()) as DiscordGuildMember;
 
-  return members;
+  const roleIds = new Set([...member.roles, guildId]); // guildId doubles as the @everyone role's id
+  let permissions = 0n;
+  for (const role of roles) {
+    if (roleIds.has(role.id)) permissions |= BigInt(role.permissions);
+  }
+  return (permissions & PERMISSION_ADMINISTRATOR) !== 0n || (permissions & PERMISSION_MANAGE_ROLES) !== 0n;
+}
+
+/** Has the bot create a brand-new Discord role in this guild, so an Owner
+ * doesn't have to go create it in Discord first before mapping it to an app
+ * class. Throws with Discord's own error text on failure (e.g. hierarchy or
+ * permission issues) - the caller is expected to have already checked
+ * botCanManageRoles for the common case, this is the actual attempt. */
+export async function createGuildRole(guildId: string, name: string): Promise<DiscordRole> {
+  const res = await fetch(`${DISCORD_API}/guilds/${guildId}/roles`, {
+    method: "POST",
+    headers: { Authorization: `Bot ${env.discordBotToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to create Discord role: ${res.status} ${await res.text()}`);
+  }
+  return (await res.json()) as DiscordRole;
 }

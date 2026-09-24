@@ -71,6 +71,9 @@ model User {
 model Airline {
   id                String   @id @default(uuid())
   name              String
+  /// Grabbed straight from the Discord server's own icon at creation time (and
+  /// refreshed whenever the guild ID changes) - never uploaded or set by hand.
+  iconUrl           String?
   slug              String   @unique
   discordGuildId    String   @unique
   /// Posts flight announcements (scheduled/status changes/cancellations) to this

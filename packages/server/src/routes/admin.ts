@@ -4,111 +4,105 @@ import { Permission, Role } from "shared";
 import { prisma } from "../db";
 import { requireAirlineMembership, requireAuth, requirePermission } from "../middleware/auth";
 import { recordAudit } from "../services/auditLog";
-import { MissingServerMembersIntentError } from "../services/discordAuth";
-import { syncAllMembersForAirline } from "../services/membershipSync";
+import { botCanManageRoles, createGuildRole, fetchGuildRoles } from "../services/discordAuth";
 
 const router = Router();
 
 router.use(requireAuth, requireAirlineMembership);
-
-const mappingSchema = z.object({
-  discordRoleId: z.string().min(1).max(32),
-  appRole: z.nativeEnum(Role),
-  label: z.string().max(100).optional(),
-});
-
-// Role-mapping management ("add custom roles") is Owner AND Manager - split
-// out from MANAGE_USER_ROLES (which stays Owner-only below, for the more
-// sensitive per-user override + audit log) so an Owner can delegate day-to-day
-// Discord role configuration without also handing out that.
-router.get("/role-mappings", requirePermission(Permission.MANAGE_ROLE_MAPPINGS), async (req, res) => {
-  const mappings = await prisma.roleMapping.findMany({
-    where: { airlineId: req.membership!.airlineId },
-    orderBy: { createdAt: "asc" },
-  });
-  res.json(mappings);
-});
 
 // A Manager creating/editing a mapping that grants OWNER would let them mint
 // themselves (or anyone) an Owner via Discord roles they may not even control -
 // only the Owner can point a mapping at OWNER.
 function forbidOwnerMappingByManager(req: Request, appRole?: Role): string | null {
   if (appRole === Role.OWNER && req.membership!.role !== Role.OWNER) {
-    return "Only the Owner can create a role mapping that grants Owner";
+    return "Only the Owner can set a role to Owner";
   }
   return null;
 }
 
-router.post("/role-mappings", requirePermission(Permission.MANAGE_ROLE_MAPPINGS), async (req, res) => {
-  const parsed = mappingSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-
-  const forbidden = forbidOwnerMappingByManager(req, parsed.data.appRole);
-  if (forbidden) return res.status(403).json({ error: forbidden });
+/** The Admin > Roles panel's main data: every real role in the airline's
+ * Discord server, each paired with its current class mapping (if any), plus
+ * whether the bot can create new roles here right now - entirely live from
+ * Discord, not the leftover state of some past sync. Nothing here writes
+ * anything automatically; it's just what the panel needs to render.
+ *
+ * Role-mapping management ("set each Discord role as one of the classes") is
+ * Owner AND Manager - split out from MANAGE_USER_ROLES (which stays
+ * Owner-only below, for the more sensitive per-user override + audit log) so
+ * an Owner can delegate day-to-day Discord role configuration without also
+ * handing out that. */
+router.get("/discord-roles", requirePermission(Permission.MANAGE_ROLE_MAPPINGS), async (req, res) => {
+  const airline = await prisma.airline.findUniqueOrThrow({ where: { id: req.membership!.airlineId } });
 
   try {
-    const mapping = await prisma.roleMapping.create({
-      data: { ...parsed.data, airlineId: req.membership!.airlineId },
+    const [roles, canManage, mappings] = await Promise.all([
+      fetchGuildRoles(airline.discordGuildId),
+      botCanManageRoles(airline.discordGuildId),
+      prisma.roleMapping.findMany({ where: { airlineId: airline.id } }),
+    ]);
+    const mappingByRoleId = new Map(mappings.map((m) => [m.discordRoleId, m]));
+
+    res.json({
+      botCanManageRoles: canManage,
+      roles: roles.map((r) => ({
+        id: r.id,
+        name: r.name,
+        color: r.color,
+        mapping: mappingByRoleId.get(r.id) ?? null,
+      })),
     });
-    recordAudit({
-      airlineId: req.membership!.airlineId,
-      actorId: req.user!.id,
-      action: "role_mapping.create",
-      targetType: "RoleMapping",
-      targetId: mapping.id,
-      detail: `${parsed.data.discordRoleId} -> ${parsed.data.appRole}`,
-    });
-    res.status(201).json(mapping);
-    // Apply the new mapping across everyone already in the server immediately,
-    // rather than waiting for each of them to log in again - fire-and-forget,
-    // the response above shouldn't wait on a full guild scan.
-    syncAllMembersForAirline(req.membership!.airlineId).catch((err) =>
-      console.error("Post-mapping-create role sync failed:", err)
-    );
-  } catch {
-    res.status(409).json({ error: "That Discord role ID is already mapped" });
+  } catch (err) {
+    console.error("Failed to fetch Discord roles:", err);
+    res.status(502).json({ error: "Couldn't reach Discord to load this server's roles - try again shortly" });
   }
 });
 
-router.patch("/role-mappings/:id", requirePermission(Permission.MANAGE_ROLE_MAPPINGS), async (req, res) => {
-  const parsed = mappingSchema.partial().safeParse(req.body);
+const setMappingSchema = z.object({
+  discordRoleId: z.string().min(1).max(32),
+  discordRoleName: z.string().min(1).max(100),
+  appRole: z.nativeEnum(Role),
+});
+
+/** Sets (creating or updating) which class an existing Discord role maps to -
+ * the "ability to set each role as one of the classes" from the panel, one
+ * role at a time. */
+router.put("/discord-roles/mapping", requirePermission(Permission.MANAGE_ROLE_MAPPINGS), async (req, res) => {
+  const parsed = setMappingSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
   const forbidden = forbidOwnerMappingByManager(req, parsed.data.appRole);
   if (forbidden) return res.status(403).json({ error: forbidden });
 
-  // updateMany + a re-fetch (rather than update({where:{id}})) so the
-  // airlineId filter is actually enforced - a bare id lookup would happily
-  // let an Owner of airline A edit a RoleMapping row belonging to airline B
-  // if they guessed/reused its id.
-  const { count } = await prisma.roleMapping.updateMany({
-    where: { id: req.params.id, airlineId: req.membership!.airlineId },
-    data: parsed.data,
+  const mapping = await prisma.roleMapping.upsert({
+    where: { airlineId_discordRoleId: { airlineId: req.membership!.airlineId, discordRoleId: parsed.data.discordRoleId } },
+    update: { appRole: parsed.data.appRole, label: parsed.data.discordRoleName },
+    create: {
+      airlineId: req.membership!.airlineId,
+      discordRoleId: parsed.data.discordRoleId,
+      appRole: parsed.data.appRole,
+      label: parsed.data.discordRoleName,
+    },
   });
-  if (count === 0) return res.status(404).json({ error: "Mapping not found" });
-
-  const mapping = await prisma.roleMapping.findUnique({ where: { id: req.params.id } });
   recordAudit({
     airlineId: req.membership!.airlineId,
     actorId: req.user!.id,
-    action: "role_mapping.update",
+    action: "role_mapping.set",
     targetType: "RoleMapping",
-    targetId: mapping!.id,
-    detail: `${mapping!.discordRoleId} -> ${mapping!.appRole}`,
+    targetId: mapping.id,
+    detail: `${parsed.data.discordRoleName} -> ${parsed.data.appRole}`,
   });
   res.json(mapping);
-  syncAllMembersForAirline(req.membership!.airlineId).catch((err) =>
-    console.error("Post-mapping-update role sync failed:", err)
-  );
 });
 
-router.delete("/role-mappings/:id", requirePermission(Permission.MANAGE_ROLE_MAPPINGS), async (req, res) => {
+/** Clears a role's class mapping (it stays a normal Discord role, just no
+ * longer tied to an app class here). */
+router.delete("/discord-roles/mapping/:discordRoleId", requirePermission(Permission.MANAGE_ROLE_MAPPINGS), async (req, res) => {
   const mapping = await prisma.roleMapping.findFirst({
-    where: { id: req.params.id, airlineId: req.membership!.airlineId },
+    where: { airlineId: req.membership!.airlineId, discordRoleId: req.params.discordRoleId },
   });
-  if (!mapping) return res.status(404).json({ error: "Mapping not found" });
+  if (!mapping) return res.status(404).json({ error: "That role isn't mapped to a class" });
   if (mapping.appRole === Role.OWNER && req.membership!.role !== Role.OWNER) {
-    return res.status(403).json({ error: "Only the Owner can remove a role mapping that grants Owner" });
+    return res.status(403).json({ error: "Only the Owner can unmap a role that grants Owner" });
   }
 
   await prisma.roleMapping.delete({ where: { id: mapping.id } });
@@ -118,38 +112,59 @@ router.delete("/role-mappings/:id", requirePermission(Permission.MANAGE_ROLE_MAP
     action: "role_mapping.delete",
     targetType: "RoleMapping",
     targetId: mapping.id,
-    detail: `${mapping.discordRoleId} -> ${mapping.appRole}`,
+    detail: `${mapping.label ?? mapping.discordRoleId} -> ${mapping.appRole}`,
   });
   res.status(204).send();
 });
 
-// The "double check, even for people already in the server" button - walks the
-// airline's whole Discord member list and gives everyone a fresh User +
-// Membership, not just whoever happens to log in. Same MANAGE_ROLE_MAPPINGS
-// gate (Owner + Manager) since it's really the same capability: keeping
-// app roles in sync with the Discord server's actual role assignments.
-router.post("/sync-roles", requirePermission(Permission.MANAGE_ROLE_MAPPINGS), async (req, res) => {
-  try {
-    const result = await syncAllMembersForAirline(req.membership!.airlineId);
-    recordAudit({
-      airlineId: req.membership!.airlineId,
-      actorId: req.user!.id,
-      action: "roles.sync",
-      targetType: "Airline",
-      targetId: req.membership!.airlineId,
-      detail: `scanned ${result.membersScanned}, +${result.usersCreated} users, +${result.membershipsCreated}/${result.membershipsUpdated} memberships`,
+const newRoleSchema = z.object({
+  name: z.string().min(1).max(100),
+  appRole: z.nativeEnum(Role),
+});
+
+/** The "+ New role" button: has the bot create a brand-new Discord role in
+ * the airline's server (so nobody has to go make it in Discord first) and
+ * immediately maps it to a class. Requires the bot to actually have
+ * Manage Roles in that server - checked again here even though the frontend
+ * already grays the button out for this, since that state can go stale. */
+router.post("/discord-roles", requirePermission(Permission.MANAGE_ROLE_MAPPINGS), async (req, res) => {
+  const parsed = newRoleSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const forbidden = forbidOwnerMappingByManager(req, parsed.data.appRole);
+  if (forbidden) return res.status(403).json({ error: forbidden });
+
+  const airline = await prisma.airline.findUniqueOrThrow({ where: { id: req.membership!.airlineId } });
+
+  const canManage = await botCanManageRoles(airline.discordGuildId);
+  if (!canManage) {
+    return res.status(403).json({
+      error: "The bot needs the Manage Roles permission in your Discord server to create roles - check its role there.",
     });
-    res.json(result);
+  }
+
+  try {
+    const role = await createGuildRole(airline.discordGuildId, parsed.data.name);
+    const mapping = await prisma.roleMapping.create({
+      data: {
+        airlineId: airline.id,
+        discordRoleId: role.id,
+        appRole: parsed.data.appRole,
+        label: role.name,
+      },
+    });
+    recordAudit({
+      airlineId: airline.id,
+      actorId: req.user!.id,
+      action: "role_mapping.create_discord_role",
+      targetType: "RoleMapping",
+      targetId: mapping.id,
+      detail: `created "${role.name}" -> ${parsed.data.appRole}`,
+    });
+    res.status(201).json({ id: role.id, name: role.name, color: role.color, mapping });
   } catch (err) {
-    if (err instanceof MissingServerMembersIntentError) {
-      return res.status(422).json({
-        error:
-          "Discord blocked the member list: enable \"Server Members Intent\" for the bot in the Discord " +
-          "Developer Portal (Bot tab -> Privileged Gateway Intents), then try again.",
-      });
-    }
-    console.error("Manual role sync failed:", err);
-    res.status(502).json({ error: "Couldn't reach Discord to sync roles - try again shortly" });
+    console.error("Discord role creation failed:", err);
+    res.status(502).json({ error: "Discord rejected the role creation - try again shortly" });
   }
 });
 

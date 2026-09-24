@@ -55,6 +55,7 @@ export interface User {
 export interface Airline {
   id: string;
   name: string;
+  iconUrl: string | null;
   slug: string;
   discordGuildId: string;
   discordWebhookUrl: string | null;

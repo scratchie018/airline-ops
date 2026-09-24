@@ -22,7 +22,12 @@ function AirlineSwitcher() {
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium text-ink bg-bg/60 hover:bg-bg border transition-colors"
       >
-        <i className="fa-solid fa-building" /> {currentMembership.airline.name}
+        {currentMembership.airline.iconUrl ? (
+          <img src={currentMembership.airline.iconUrl} alt="" className="w-4 h-4 rounded" />
+        ) : (
+          <i className="fa-solid fa-building" />
+        )}
+        {currentMembership.airline.name}
         {memberships.length > 1 && <i className="fa-solid fa-chevron-down text-xs text-ink-muted" />}
       </button>
       {open && (
@@ -34,12 +39,19 @@ function AirlineSwitcher() {
                 selectAirline(m.airlineId);
                 navigate("/");
               }}
-              className={`w-full text-left px-3 py-2 text-sm hover:bg-outline/10 flex items-center justify-between ${
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-outline/10 flex items-center gap-2 justify-between ${
                 m.airlineId === currentMembership.airlineId ? "text-brand-400" : "text-ink"
               }`}
             >
-              {m.airline.name}
-              {m.airlineId === currentMembership.airlineId && <i className="fa-solid fa-check" />}
+              <span className="flex items-center gap-2 min-w-0">
+                {m.airline.iconUrl ? (
+                  <img src={m.airline.iconUrl} alt="" className="w-4 h-4 rounded shrink-0" />
+                ) : (
+                  <i className="fa-solid fa-building shrink-0" />
+                )}
+                <span className="truncate">{m.airline.name}</span>
+              </span>
+              {m.airlineId === currentMembership.airlineId && <i className="fa-solid fa-check shrink-0" />}
             </button>
           ))}
           <button
