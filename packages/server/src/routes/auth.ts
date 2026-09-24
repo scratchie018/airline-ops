@@ -12,7 +12,7 @@ import {
 import { syncMembershipsFromDiscordGuilds } from "../services/membershipSync";
 import { requireAuth } from "../middleware/auth";
 import { signSession } from "../services/jwt";
-import { consumeDesktopSession, createDesktopSession } from "../services/desktopAuthSessions";
+import { cleanupExpiredDesktopSessions, consumeDesktopSession, createDesktopSession } from "../services/desktopAuthSessions";
 
 const router = Router();
 
@@ -102,7 +102,10 @@ router.get("/discord/callback", async (req, res) => {
       // here under the session id the Electron app generated up front, and the
       // desktop app collects it by polling GET /auth/session/:id (pure outbound
       // HTTPS, nothing for a firewall to object to).
-      if (session) createDesktopSession(session, sessionToken);
+      if (session) {
+        await createDesktopSession(session, sessionToken);
+        cleanupExpiredDesktopSessions().catch(() => {});
+      }
       res.set("Content-Type", "text/html");
       return res.send(
         "<html><body style=\"font-family:sans-serif;background:#0f1021;color:#e8e9fb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;\">" +
@@ -129,8 +132,8 @@ router.get("/discord/callback", async (req, res) => {
  * one-time read, same as a redirect would only fire once. 404 means "not ready
  * yet or this id was never valid," which the desktop app treats as "keep polling"
  * up to its own timeout. */
-router.get("/session/:id", (req, res) => {
-  const token = consumeDesktopSession(req.params.id);
+router.get("/session/:id", async (req, res) => {
+  const token = await consumeDesktopSession(req.params.id);
   if (!token) return res.status(404).json({ ready: false });
   res.json({ ready: true, token });
 });
