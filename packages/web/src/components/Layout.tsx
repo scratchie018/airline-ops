@@ -2,6 +2,7 @@ import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { Permission } from "shared";
 import { useAuth } from "../auth/AuthContext";
+import BuildInfo from "./BuildInfo";
 
 const navItemClass = ({ isActive }: { isActive: boolean }) =>
   `flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
@@ -128,6 +129,9 @@ export default function Layout() {
       <main className="mx-auto max-w-6xl px-4 py-6">
         <Outlet />
       </main>
+      <footer className="mx-auto max-w-6xl px-4 pb-4">
+        <BuildInfo />
+      </footer>
     </div>
   );
 }

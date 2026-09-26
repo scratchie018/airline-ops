@@ -12,12 +12,14 @@ import FlightDetailPage from "./pages/FlightDetailPage";
 import FlightsPage from "./pages/FlightsPage";
 import Login from "./pages/Login";
 import MyBookingsPage from "./pages/MyBookingsPage";
+import PrivacyPage from "./pages/PrivacyPage";
 
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
+      <Route path="/privacy" element={<PrivacyPage />} />
       <Route element={<ProtectedRoute />}>
         <Route path="/airlines" element={<AirlinesPage />} />
         <Route element={<RequireAirline />}>

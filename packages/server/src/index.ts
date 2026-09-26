@@ -24,7 +24,12 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 
-app.get("/health", (_req, res) => res.json({ ok: true }));
+// Render sets this to the exact commit it built/deployed - surfaced here so
+// the running API's provenance can be checked against the public repo the
+// same way the web build's own commit is (see vite.config.ts / Layout.tsx).
+const COMMIT_SHA = process.env.RENDER_GIT_COMMIT || "dev";
+
+app.get("/health", (_req, res) => res.json({ ok: true, commit: COMMIT_SHA }));
 
 app.use("/auth", authRoutes);
 app.use("/airlines", airlineRoutes);

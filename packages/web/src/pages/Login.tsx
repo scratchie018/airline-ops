@@ -1,6 +1,7 @@
 import { Navigate } from "react-router-dom";
 import { startDiscordLogin } from "../api";
 import { useAuth } from "../auth/AuthContext";
+import BuildInfo from "../components/BuildInfo";
 
 export default function Login() {
   const { user, loading } = useAuth();
@@ -22,6 +23,10 @@ export default function Login() {
         >
           <i className="fa-brands fa-discord" /> Sign in with Discord
         </button>
+
+        <div className="mt-5 pt-4 border-t">
+          <BuildInfo />
+        </div>
       </div>
     </div>
   );

@@ -10,6 +10,30 @@ database and a real running server (see "What's been tested" below) - the one
 thing that couldn't be tested here is the actual Discord OAuth exchange, since
 that needs a real Discord Application's credentials.
 
+## Trust & verification
+
+This is a real open-source project, not a closed bot you have to take on
+faith - the full source (this repo) is public, and every deployed build
+stamps the exact git commit it was compiled from, shown in the footer of
+every page on the live site and linked straight to that commit here on
+GitHub, so anyone can confirm the running site matches published source
+line-for-line. See [PRIVACY.md](./PRIVACY.md) for exactly what Discord data
+this collects (short version: your Discord ID/username/avatar and, briefly
+during login only, which servers you're in - nothing else, no email, no
+message content, no DMs, and it can't act as you).
+
+What the Discord bot actually needs, and why:
+- **Server Members Intent** (Bot tab) - to look up a member's roles when
+  syncing their app Role from your server's Discord roles.
+- **View Server Members** - same reason, at the invite-permissions level.
+- **Manage Roles** (optional) - only unlocks the Admin panel's "create a new
+  Discord role from here" convenience button; everything else works without
+  it.
+
+It does **not** need Administrator, message content, or any permission
+beyond those three - if an invite link you're given asks for more than that,
+something's been changed from what's in this repo.
+
 ## How it's structured
 
 ```
