@@ -5,6 +5,12 @@ import { useToast } from "../components/Toast";
 
 type Tab = "briefer" | "scope" | "charts";
 
+const TABS: { id: Tab; label: string; icon: string }[] = [
+  { id: "briefer", label: "Briefer", icon: "fa-file-lines" },
+  { id: "scope", label: "Scope", icon: "fa-satellite-dish" },
+  { id: "charts", label: "Charts", icon: "fa-map" },
+];
+
 const FIELD_ORDER = [
   "squawk",
   "flightLevel",
@@ -35,29 +41,33 @@ const EMPTY_BRIEF: Record<(typeof FIELD_ORDER)[number], string> = {
   notam: "",
 };
 
-/** Everything on this page is styled to feel like the standalone 24Brief tool
- * it was ported from (near-black background, blue accent) rather than
- * blending into AirlineOps' own purple theme - deliberately a distinct,
- * recognizable "tool" area within the app. */
 export default function BriefingPage() {
   const [tab, setTab] = useState<Tab>("briefer");
   const [fields, setFields] = useState(EMPTY_BRIEF);
 
   return (
-    <div className="-m-4 sm:-m-6 rounded-xl overflow-hidden" style={{ background: "#0b0b0c", color: "white" }}>
-      <div className="flex gap-1 p-3 border-b border-white/10">
-        {(["briefer", "scope", "charts"] as Tab[]).map((t) => (
+    <div>
+      <h1 className="text-2xl font-bold mb-4">
+        <i className="fa-solid fa-clipboard-list text-brand-400 mr-2" />
+        Briefing
+      </h1>
+
+      <div className="flex gap-1 mb-4">
+        {TABS.map((t) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
-            className="px-4 py-1.5 rounded-md text-sm font-medium transition-colors"
-            style={{ background: tab === t ? "#3b82f6" : "#1a1a1c", color: "white" }}
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              tab === t.id ? "bg-brand-500 text-white" : "bg-accent border text-ink-muted hover:text-ink"
+            }`}
           >
-            {t === "briefer" ? "Briefer" : t === "scope" ? "Scope" : "Charts"}
+            <i className={`fa-solid ${t.icon} mr-1.5`} />
+            {t.label}
           </button>
         ))}
       </div>
-      <div className="p-4">
+
+      <div className="bg-accent border rounded-xl p-4">
         {tab === "briefer" && <BrieferTab fields={fields} setFields={setFields} />}
         {tab === "scope" && <ScopeTab />}
         {tab === "charts" && <ChartsTab fields={fields} />}
@@ -66,9 +76,8 @@ export default function BriefingPage() {
   );
 }
 
-const briefInputClass =
-  "w-full rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:ring-1";
-const briefInputStyle = { background: "#1a1a1c", border: "1px solid #2f2f2f" };
+const inputClass = "w-full border rounded-lg px-2 py-1.5 text-sm bg-bg text-ink placeholder:text-ink-muted";
+const sectionLabelClass = "text-xs font-semibold uppercase tracking-wide text-ink-muted";
 
 function BrieferTab({
   fields,
@@ -118,46 +127,45 @@ function BrieferTab({
     }
   }
 
-  if (loading) return <p className="text-white/60">Loading...</p>;
+  if (loading) return <p className="text-ink-muted">Loading...</p>;
 
   return (
     <form onSubmit={save} className="max-w-xl mx-auto space-y-5">
       <section className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-white/50">Flight Data</h3>
-        <input className={briefInputClass} style={briefInputStyle} placeholder="Squawk" value={fields.squawk} onChange={(e) => set("squawk", e.target.value)} />
-        <input className={briefInputClass} style={briefInputStyle} placeholder="Flight Level" value={fields.flightLevel} onChange={(e) => set("flightLevel", e.target.value)} />
-        <input className={briefInputClass} style={briefInputStyle} placeholder="Initial Climb" value={fields.initialClimb} onChange={(e) => set("initialClimb", e.target.value)} />
+        <h3 className={sectionLabelClass}>Flight Data</h3>
+        <input className={inputClass} placeholder="Squawk" value={fields.squawk} onChange={(e) => set("squawk", e.target.value)} />
+        <input className={inputClass} placeholder="Flight Level" value={fields.flightLevel} onChange={(e) => set("flightLevel", e.target.value)} />
+        <input className={inputClass} placeholder="Initial Climb" value={fields.initialClimb} onChange={(e) => set("initialClimb", e.target.value)} />
       </section>
 
       <section className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-white/50">Route</h3>
-        <input className={briefInputClass} style={briefInputStyle} placeholder="Departure Airport (ICAO)" value={fields.departureIcao} onChange={(e) => set("departureIcao", e.target.value)} />
-        <input className={briefInputClass} style={briefInputStyle} placeholder="Arrival Airport (ICAO)" value={fields.arrivalIcao} onChange={(e) => set("arrivalIcao", e.target.value)} />
-        <textarea className={briefInputClass} style={briefInputStyle} placeholder="Waypoints" rows={2} value={fields.waypoints} onChange={(e) => set("waypoints", e.target.value)} />
+        <h3 className={sectionLabelClass}>Route</h3>
+        <input className={inputClass} placeholder="Departure Airport (ICAO)" value={fields.departureIcao} onChange={(e) => set("departureIcao", e.target.value)} />
+        <input className={inputClass} placeholder="Arrival Airport (ICAO)" value={fields.arrivalIcao} onChange={(e) => set("arrivalIcao", e.target.value)} />
+        <textarea className={inputClass} placeholder="Waypoints" rows={2} value={fields.waypoints} onChange={(e) => set("waypoints", e.target.value)} />
       </section>
 
       <section className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-white/50">Departure</h3>
-        <input className={briefInputClass} style={briefInputStyle} placeholder="Departure Runway" value={fields.departureRunway} onChange={(e) => set("departureRunway", e.target.value)} />
-        <textarea className={briefInputClass} style={briefInputStyle} placeholder="Departure Taxi Info" rows={2} value={fields.departureTaxiInfo} onChange={(e) => set("departureTaxiInfo", e.target.value)} />
+        <h3 className={sectionLabelClass}>Departure</h3>
+        <input className={inputClass} placeholder="Departure Runway" value={fields.departureRunway} onChange={(e) => set("departureRunway", e.target.value)} />
+        <textarea className={inputClass} placeholder="Departure Taxi Info" rows={2} value={fields.departureTaxiInfo} onChange={(e) => set("departureTaxiInfo", e.target.value)} />
       </section>
 
       <section className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-white/50">Arrival</h3>
-        <input className={briefInputClass} style={briefInputStyle} placeholder="Arrival Runway" value={fields.arrivalRunway} onChange={(e) => set("arrivalRunway", e.target.value)} />
-        <textarea className={briefInputClass} style={briefInputStyle} placeholder="Arrival Taxi Info" rows={2} value={fields.arrivalTaxiInfo} onChange={(e) => set("arrivalTaxiInfo", e.target.value)} />
+        <h3 className={sectionLabelClass}>Arrival</h3>
+        <input className={inputClass} placeholder="Arrival Runway" value={fields.arrivalRunway} onChange={(e) => set("arrivalRunway", e.target.value)} />
+        <textarea className={inputClass} placeholder="Arrival Taxi Info" rows={2} value={fields.arrivalTaxiInfo} onChange={(e) => set("arrivalTaxiInfo", e.target.value)} />
       </section>
 
       <section className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-white/50">Briefing</h3>
-        <textarea className={briefInputClass} style={briefInputStyle} placeholder="ATIS" rows={3} value={fields.atis} onChange={(e) => set("atis", e.target.value)} />
-        <textarea className={briefInputClass} style={briefInputStyle} placeholder="NOTAM" rows={3} value={fields.notam} onChange={(e) => set("notam", e.target.value)} />
+        <h3 className={sectionLabelClass}>Briefing</h3>
+        <textarea className={inputClass} placeholder="ATIS" rows={3} value={fields.atis} onChange={(e) => set("atis", e.target.value)} />
+        <textarea className={inputClass} placeholder="NOTAM" rows={3} value={fields.notam} onChange={(e) => set("notam", e.target.value)} />
       </section>
 
       <button
         disabled={saving}
-        className="w-full py-2.5 rounded-lg font-medium text-white disabled:opacity-60"
-        style={{ background: "#3b82f6" }}
+        className="w-full bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium py-2.5 rounded-lg disabled:opacity-60"
       >
         {saving ? "Saving..." : "Save Brief"}
       </button>
@@ -168,7 +176,7 @@ function BrieferTab({
 function ScopeTab() {
   return (
     <div className="max-w-lg mx-auto text-center py-16">
-      <p className="text-white/70 mb-6">
+      <p className="text-ink-muted mb-6">
         24Scope can't be embedded here directly - its site blocks being shown inside another page (a security
         setting on their end, not something on our side). It opens cleanly in your browser instead.
       </p>
@@ -176,8 +184,7 @@ function ScopeTab() {
         href="https://zedruc.net/24scope/"
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-block px-5 py-2.5 rounded-lg font-medium text-white"
-        style={{ background: "#3b82f6" }}
+        className="inline-block bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium px-5 py-2.5 rounded-lg"
       >
         Open 24Scope ↗
       </a>
@@ -233,10 +240,9 @@ function ChartsTab({ fields }: { fields: Record<(typeof FIELD_ORDER)[number], st
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search charts..."
-          className={briefInputClass}
-          style={briefInputStyle}
+          className={inputClass}
         />
-        <div className="flex-1 overflow-y-auto rounded-lg" style={{ background: "#111113" }}>
+        <div className="flex-1 overflow-y-auto rounded-lg bg-bg border">
           {visible.map((c) => (
             <button
               key={c}
@@ -244,34 +250,35 @@ function ChartsTab({ fields }: { fields: Record<(typeof FIELD_ORDER)[number], st
                 setSelected(c);
                 fit();
               }}
-              className="w-full text-left px-3 py-2 text-sm"
-              style={{ background: selected === c ? "#3b82f6" : "transparent" }}
+              className={`w-full text-left px-3 py-2 text-sm ${
+                selected === c ? "bg-brand-500 text-white" : "text-ink hover:bg-outline/10"
+              }`}
             >
               {c}
             </button>
           ))}
-          {visible.length === 0 && <p className="text-white/40 text-sm px-3 py-2">No charts match.</p>}
+          {visible.length === 0 && <p className="text-ink-muted text-sm px-3 py-2">No charts match.</p>}
         </div>
       </div>
 
       <div className="flex-1 flex flex-col gap-2 min-w-0">
         <div className="flex gap-2">
-          <button onClick={center} className="px-3 py-1.5 rounded-lg text-sm" style={{ background: "#3b82f6" }}>
+          <button onClick={center} className="px-3 py-1.5 rounded-lg text-sm bg-brand-500 hover:bg-brand-600 text-white">
             🎯 Center
           </button>
-          <button onClick={zoomIn} className="px-3 py-1.5 rounded-lg text-sm" style={{ background: "#3b82f6" }}>
+          <button onClick={zoomIn} className="px-3 py-1.5 rounded-lg text-sm bg-brand-500 hover:bg-brand-600 text-white">
             +
           </button>
-          <button onClick={zoomOut} className="px-3 py-1.5 rounded-lg text-sm" style={{ background: "#3b82f6" }}>
+          <button onClick={zoomOut} className="px-3 py-1.5 rounded-lg text-sm bg-brand-500 hover:bg-brand-600 text-white">
             -
           </button>
-          <button onClick={fit} className="px-3 py-1.5 rounded-lg text-sm" style={{ background: "#3b82f6" }}>
+          <button onClick={fit} className="px-3 py-1.5 rounded-lg text-sm bg-brand-500 hover:bg-brand-600 text-white">
             ⤢ Fit
           </button>
         </div>
         <div
-          className="flex-1 rounded-lg overflow-hidden relative select-none"
-          style={{ background: "#111113", cursor: selected ? "grab" : "default" }}
+          className="flex-1 rounded-lg overflow-hidden relative select-none bg-bg border"
+          style={{ cursor: selected ? "grab" : "default" }}
           onWheel={onWheel}
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
@@ -290,17 +297,14 @@ function ChartsTab({ fields }: { fields: Record<(typeof FIELD_ORDER)[number], st
                   maxHeight: "100%",
                 }}
               />
-              <div
-                className="absolute top-2.5 left-2.5 rounded-lg px-2.5 py-2 text-xs whitespace-pre-line max-w-xs"
-                style={{ background: "rgba(0,0,0,0.7)" }}
-              >
+              <div className="absolute top-2.5 left-2.5 rounded-lg px-2.5 py-2 text-xs text-white whitespace-pre-line max-w-xs bg-black/70">
                 {`Chart: ${selected}\n\nDEP TAXI:\n${fields.departureTaxiInfo || "—"}\n\nARR TAXI:\n${
                   fields.arrivalTaxiInfo || "—"
                 }`}
               </div>
             </>
           ) : (
-            <div className="h-full flex items-center justify-center text-white/40 text-sm">
+            <div className="h-full flex items-center justify-center text-ink-muted text-sm">
               Select a chart from the list.
             </div>
           )}
