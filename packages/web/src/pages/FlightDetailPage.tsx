@@ -16,11 +16,7 @@ import { apiFetch, downloadFile } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import StatusBadge from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
-
-// Live status polling: a Flight Host marking BOARDING should show up for everyone
-// else already looking at this flight (gate staff, passengers, dashboard) without
-// them needing to manually refresh - this is the whole point of "live" flight ops.
-const LIVE_REFRESH_MS = 8000;
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 const STATUS_FLOW: FlightStatus[] = [
   FlightStatus.SCHEDULED,
@@ -62,9 +58,8 @@ export default function FlightDetailPage() {
     if (can(Permission.MANAGE_CREW)) {
       apiFetch<CrewEligibleUser[]>("/users/crew-eligible").then(setCrewOptions);
     }
-    const interval = setInterval(load, LIVE_REFRESH_MS);
-    return () => clearInterval(interval);
   }, [id]);
+  useAutoRefresh(load);
 
   if (!flight) return <p className="text-ink-muted">Loading...</p>;
 

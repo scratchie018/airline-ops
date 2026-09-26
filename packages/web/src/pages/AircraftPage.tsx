@@ -5,6 +5,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useConfirm } from "../components/ConfirmDialog";
 import StatusBadge from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 export default function AircraftPage() {
   const { can } = useAuth();
@@ -26,6 +27,7 @@ export default function AircraftPage() {
   useEffect(() => {
     load();
   }, []);
+  useAutoRefresh(load);
 
   const visibleFleet = useMemo(() => {
     const q = search.trim().toLowerCase();

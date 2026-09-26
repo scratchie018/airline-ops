@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BRIEFING_CHARTS, Brief } from "shared";
 import { apiFetch } from "../api";
 import { useToast } from "../components/Toast";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 type Tab = "briefer" | "charts";
 
@@ -87,29 +88,42 @@ function BrieferTab({
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Blocks the 30s autosync from overwriting keystrokes mid-edit - it only
+  // pulls the server's copy in while nothing here is unsaved, then resumes
+  // once a save (or a fresh load) brings this client back in sync.
+  const [dirty, setDirty] = useState(false);
+
+  function applyBrief(brief: Brief) {
+    setFields({
+      squawk: brief.squawk,
+      flightLevel: brief.flightLevel,
+      initialClimb: brief.initialClimb,
+      departureIcao: brief.departureIcao,
+      arrivalIcao: brief.arrivalIcao,
+      waypoints: brief.waypoints,
+      departureRunway: brief.departureRunway,
+      departureTaxiInfo: brief.departureTaxiInfo,
+      arrivalRunway: brief.arrivalRunway,
+      arrivalTaxiInfo: brief.arrivalTaxiInfo,
+      atis: brief.atis,
+      notam: brief.notam,
+    });
+    setDirty(false);
+  }
 
   useEffect(() => {
     apiFetch<Brief>("/briefer").then((brief) => {
-      setFields({
-        squawk: brief.squawk,
-        flightLevel: brief.flightLevel,
-        initialClimb: brief.initialClimb,
-        departureIcao: brief.departureIcao,
-        arrivalIcao: brief.arrivalIcao,
-        waypoints: brief.waypoints,
-        departureRunway: brief.departureRunway,
-        departureTaxiInfo: brief.departureTaxiInfo,
-        arrivalRunway: brief.arrivalRunway,
-        arrivalTaxiInfo: brief.arrivalTaxiInfo,
-        atis: brief.atis,
-        notam: brief.notam,
-      });
+      applyBrief(brief);
       setLoading(false);
     });
   }, []);
+  useAutoRefresh(() => {
+    if (!dirty) apiFetch<Brief>("/briefer").then(applyBrief);
+  });
 
   function set(key: (typeof FIELD_ORDER)[number], value: string) {
     setFields({ ...fields, [key]: value });
+    setDirty(true);
   }
 
   async function save(e: FormEvent) {
@@ -117,6 +131,7 @@ function BrieferTab({
     setSaving(true);
     try {
       await apiFetch("/briefer", { method: "PUT", body: JSON.stringify(fields) });
+      setDirty(false);
       toast.success("Brief saved");
     } catch (err: any) {
       toast.error(err.message);

@@ -1,6 +1,7 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { Membership, Permission, User, hasPermission } from "shared";
 import { apiFetch, clearCurrentAirlineId, clearWebToken, getCurrentAirlineId, setCurrentAirlineId } from "../api";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 interface AuthState {
   user: User | null;
@@ -60,6 +61,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refresh();
   }, []);
+
+  // A role/membership change made by an Owner on one device (or another
+  // tab) should reach every other signed-in session for that account
+  // without them needing to log out and back in - this is what makes that
+  // happen, on the same 30s cadence as every other auto-synced list.
+  useAutoRefresh(refresh);
 
   async function logout() {
     await apiFetch("/auth/logout", { method: "POST" });

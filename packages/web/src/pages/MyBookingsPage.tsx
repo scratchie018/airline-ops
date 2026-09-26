@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Aircraft, Booking, Flight } from "shared";
 import { apiFetch } from "../api";
 import StatusBadge from "../components/StatusBadge";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 type BookingWithFlight = Booking & { flight: Flight & { aircraft: Aircraft } };
 
@@ -16,6 +17,7 @@ export default function MyBookingsPage() {
   useEffect(() => {
     load();
   }, []);
+  useAutoRefresh(load);
 
   async function cancel(id: string) {
     await apiFetch(`/bookings/${id}`, { method: "DELETE" });

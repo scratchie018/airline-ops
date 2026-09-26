@@ -4,6 +4,7 @@ import { Membership, Role } from "shared";
 import { apiFetch } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../components/Toast";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 function EditAirlineForm({ membership, onDone }: { membership: Membership; onDone: () => void }) {
   const toast = useToast();
@@ -202,6 +203,7 @@ export default function AirlinesPage() {
   const { user, memberships, selectAirline, refresh, logout } = useAuth();
   const navigate = useNavigate();
   const [editingAirlineId, setEditingAirlineId] = useState<string | null>(null);
+  useAutoRefresh(refresh);
 
   function pick(airlineId: string) {
     selectAirline(airlineId);

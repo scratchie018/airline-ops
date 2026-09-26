@@ -4,6 +4,7 @@ import { apiFetch } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import { useConfirm } from "../components/ConfirmDialog";
 import { useToast } from "../components/Toast";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 type Tab = "users" | "roles" | "audit";
 
@@ -63,6 +64,7 @@ function UsersTab() {
   useEffect(() => {
     load();
   }, []);
+  useAutoRefresh(load);
 
   const visibleUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -224,6 +226,7 @@ function RolesTab() {
   useEffect(() => {
     load();
   }, []);
+  useAutoRefresh(load);
 
   async function setClass(role: DiscordRoleRow, appRole: Role) {
     try {
@@ -376,9 +379,12 @@ function RolesTab() {
 function AuditTab() {
   const [entries, setEntries] = useState<AuditLogEntry[]>([]);
 
-  useEffect(() => {
+  function load() {
     apiFetch<Paginated<AuditLogEntry>>("/admin/audit-log?pageSize=100").then((r) => setEntries(r.items));
-  }, []);
+  }
+
+  useEffect(load, []);
+  useAutoRefresh(load);
 
   return (
     <div className="bg-accent border rounded-xl overflow-hidden">

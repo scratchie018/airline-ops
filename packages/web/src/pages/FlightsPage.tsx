@@ -5,6 +5,7 @@ import { apiFetch } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import StatusBadge from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 const STATUS_FILTERS: (FlightStatus | "ALL")[] = [
   "ALL",
@@ -56,6 +57,7 @@ export default function FlightsPage() {
     const id = setTimeout(load, 250);
     return () => clearTimeout(id);
   }, [search, statusFilter]);
+  useAutoRefresh(load);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();

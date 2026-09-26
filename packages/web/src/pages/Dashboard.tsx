@@ -4,19 +4,18 @@ import { Flight, Paginated } from "shared";
 import { apiFetch } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import StatusBadge from "../components/StatusBadge";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 export default function Dashboard() {
   const { user, currentMembership } = useAuth();
   const [upcoming, setUpcoming] = useState<Flight[]>([]);
 
-  useEffect(() => {
-    function load() {
-      apiFetch<Paginated<Flight>>("/flights?status=SCHEDULED&pageSize=5").then((r) => setUpcoming(r.items));
-    }
-    load();
-    const interval = setInterval(load, 8000);
-    return () => clearInterval(interval);
-  }, []);
+  function load() {
+    apiFetch<Paginated<Flight>>("/flights?status=SCHEDULED&pageSize=5").then((r) => setUpcoming(r.items));
+  }
+
+  useEffect(load, []);
+  useAutoRefresh(load);
 
   return (
     <div>
