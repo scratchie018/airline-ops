@@ -3,11 +3,10 @@ import { BRIEFING_CHARTS, Brief } from "shared";
 import { apiFetch } from "../api";
 import { useToast } from "../components/Toast";
 
-type Tab = "briefer" | "scope" | "charts";
+type Tab = "briefer" | "charts";
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "briefer", label: "Briefer", icon: "fa-file-lines" },
-  { id: "scope", label: "Scope", icon: "fa-satellite-dish" },
   { id: "charts", label: "Charts", icon: "fa-map" },
 ];
 
@@ -52,16 +51,16 @@ export default function BriefingPage() {
         Briefing
       </h1>
 
-      <div className="flex gap-1 mb-4">
+      <div className="flex gap-2 mb-4 bg-accent border rounded-xl p-2">
         {TABS.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              tab === t.id ? "bg-brand-500 text-white" : "bg-accent border text-ink-muted hover:text-ink"
+            className={`flex-1 px-6 py-3 rounded-lg text-base font-medium transition-colors ${
+              tab === t.id ? "bg-brand-500 text-white" : "text-ink-muted hover:text-ink hover:bg-outline/10"
             }`}
           >
-            <i className={`fa-solid ${t.icon} mr-1.5`} />
+            <i className={`fa-solid ${t.icon} mr-2`} />
             {t.label}
           </button>
         ))}
@@ -69,7 +68,6 @@ export default function BriefingPage() {
 
       <div className="bg-accent border rounded-xl p-4">
         {tab === "briefer" && <BrieferTab fields={fields} setFields={setFields} />}
-        {tab === "scope" && <ScopeTab />}
         {tab === "charts" && <ChartsTab fields={fields} />}
       </div>
     </div>
@@ -170,25 +168,6 @@ function BrieferTab({
         {saving ? "Saving..." : "Save Brief"}
       </button>
     </form>
-  );
-}
-
-function ScopeTab() {
-  return (
-    <div className="max-w-lg mx-auto text-center py-16">
-      <p className="text-ink-muted mb-6">
-        24Scope can't be embedded here directly - its site blocks being shown inside another page (a security
-        setting on their end, not something on our side). It opens cleanly in your browser instead.
-      </p>
-      <a
-        href="https://zedruc.net/24scope/"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-block bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium px-5 py-2.5 rounded-lg"
-      >
-        Open 24Scope ↗
-      </a>
-    </div>
   );
 }
 
