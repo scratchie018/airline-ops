@@ -9,6 +9,7 @@ import aircraftRoutes from "./routes/aircraft";
 import flightRoutes from "./routes/flights";
 import bookingRoutes from "./routes/bookings";
 import drinkOrderRoutes from "./routes/drinkOrders";
+import brieferRoutes from "./routes/briefer";
 import usersRoutes from "./routes/users";
 import adminRoutes from "./routes/admin";
 
@@ -31,6 +32,7 @@ app.use("/aircraft", aircraftRoutes);
 app.use("/flights", flightRoutes);
 app.use("/", bookingRoutes); // mounts /flights/:id/bookings and /bookings/*
 app.use("/", drinkOrderRoutes); // mounts /flights/:id/drink-orders and /drink-orders/*
+app.use("/briefer", brieferRoutes);
 app.use("/users", usersRoutes);
 app.use("/admin", adminRoutes);
 

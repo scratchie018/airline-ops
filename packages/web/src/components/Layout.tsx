@@ -91,6 +91,11 @@ export default function Layout() {
               <NavLink to="/my-bookings" className={navItemClass}>
                 <i className="fa-solid fa-ticket" /> My Bookings
               </NavLink>
+              {can(Permission.USE_BRIEFING_TOOLS) && (
+                <NavLink to="/briefing" className={navItemClass}>
+                  <i className="fa-solid fa-clipboard-list" /> Briefing
+                </NavLink>
+              )}
               {(can(Permission.MANAGE_USER_ROLES) || can(Permission.MANAGE_ROLE_MAPPINGS)) && (
                 <NavLink to="/admin" className={navItemClass}>
                   <i className="fa-solid fa-user-shield" /> Admin

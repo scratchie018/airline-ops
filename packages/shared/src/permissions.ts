@@ -19,6 +19,9 @@ export enum Permission {
   MANAGE_ROLE_MAPPINGS = "MANAGE_ROLE_MAPPINGS",
   ORDER_DRINKS = "ORDER_DRINKS",
   MANAGE_DRINK_ORDERS = "MANAGE_DRINK_ORDERS",
+  // Pilot and up: the Briefer/Scope/Charts tools (see briefer.ts) - not
+  // something a Passenger or plain crew position needs.
+  USE_BRIEFING_TOOLS = "USE_BRIEFING_TOOLS",
 }
 
 const MATRIX: Record<Role, Permission[]> = {
@@ -33,6 +36,7 @@ const MATRIX: Record<Role, Permission[]> = {
     Permission.MANAGE_ROLE_MAPPINGS,
     Permission.ORDER_DRINKS,
     Permission.MANAGE_DRINK_ORDERS,
+    Permission.USE_BRIEFING_TOOLS,
   ],
   [Role.MANAGER]: [
     Permission.MANAGE_AIRCRAFT,
@@ -44,6 +48,7 @@ const MATRIX: Record<Role, Permission[]> = {
     Permission.MANAGE_ROLE_MAPPINGS,
     Permission.ORDER_DRINKS,
     Permission.MANAGE_DRINK_ORDERS,
+    Permission.USE_BRIEFING_TOOLS,
   ],
   [Role.FLIGHT_HOST]: [
     Permission.MANAGE_FLIGHTS,
@@ -54,11 +59,13 @@ const MATRIX: Record<Role, Permission[]> = {
     Permission.BOOK_FLIGHT,
     Permission.ORDER_DRINKS,
     Permission.MANAGE_DRINK_ORDERS,
+    Permission.USE_BRIEFING_TOOLS,
   ],
   [Role.PILOT]: [
     Permission.UPDATE_FLIGHT_STATUS,
     Permission.BOOK_FLIGHT,
     Permission.ORDER_DRINKS,
+    Permission.USE_BRIEFING_TOOLS,
   ],
   [Role.PASSENGER]: [Permission.BOOK_FLIGHT, Permission.ORDER_DRINKS],
 };

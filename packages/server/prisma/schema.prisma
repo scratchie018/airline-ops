@@ -62,6 +62,7 @@ model User {
   drinkOrders      DrinkOrder[]
   auditLogEntries  AuditLog[]
   ownedAirlines    Airline[]        @relation("AirlineCreatedBy")
+  briefs           Brief[]
 }
 
 /// One virtual airline "workspace" - the multi-tenancy boundary. Everything else
@@ -91,6 +92,7 @@ model Airline {
   auditLog     AuditLog[]
   aircraft     Aircraft[]
   flights      Flight[]
+  briefs       Brief[]
 }
 
 /// A user's role within one specific airline - the same Discord account can have
@@ -241,4 +243,31 @@ model DrinkOrder {
 
   @@index([flightId, status])
   @@index([userId])
+}
+
+/// A pilot's personal flight briefing sheet, ported from a standalone
+/// companion tool - one per (user, airline), not tied to any specific Flight
+/// (the original only ever kept one saved brief at a time too, since a pilot
+/// fills it in fresh from ATC clearance each flight).
+model Brief {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id])
+  airlineId         String
+  airline           Airline  @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+  squawk            String   @default("")
+  flightLevel       String   @default("")
+  initialClimb      String   @default("")
+  departureIcao     String   @default("")
+  arrivalIcao       String   @default("")
+  waypoints         String   @default("")
+  departureRunway   String   @default("")
+  departureTaxiInfo String   @default("")
+  arrivalRunway     String   @default("")
+  arrivalTaxiInfo   String   @default("")
+  atis              String   @default("")
+  notam             String   @default("")
+  updatedAt         DateTime @updatedAt
+
+  @@unique([userId, airlineId])
 }

@@ -6,6 +6,7 @@ import AdminPage from "./pages/AdminPage";
 import AircraftPage from "./pages/AircraftPage";
 import AirlinesPage from "./pages/AirlinesPage";
 import AuthCallback from "./pages/AuthCallback";
+import BriefingPage from "./pages/BriefingPage";
 import Dashboard from "./pages/Dashboard";
 import FlightDetailPage from "./pages/FlightDetailPage";
 import FlightsPage from "./pages/FlightsPage";
@@ -26,6 +27,7 @@ export default function App() {
             <Route path="/flights/:id" element={<FlightDetailPage />} />
             <Route path="/aircraft" element={<AircraftPage />} />
             <Route path="/my-bookings" element={<MyBookingsPage />} />
+            <Route path="/briefing" element={<BriefingPage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Route>
         </Route>

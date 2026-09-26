@@ -160,3 +160,22 @@ export interface AuditLogEntry {
   createdAt: string;
   actor?: Pick<User, "id" | "discordUsername" | "discordAvatarUrl">;
 }
+
+/** A pilot's personal flight briefing sheet - one per (user, airline), not
+ * tied to a specific Flight, matching the standalone Briefer tool this was
+ * ported from (it only ever kept one saved brief at a time too). */
+export interface Brief {
+  squawk: string;
+  flightLevel: string;
+  initialClimb: string;
+  departureIcao: string;
+  arrivalIcao: string;
+  waypoints: string;
+  departureRunway: string;
+  departureTaxiInfo: string;
+  arrivalRunway: string;
+  arrivalTaxiInfo: string;
+  atis: string;
+  notam: string;
+  updatedAt: string;
+}
